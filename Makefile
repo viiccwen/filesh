@@ -1,39 +1,47 @@
-.PHONY: up down logs ps backend frontend test lint format compose-config migrate pre-commit pre-commit-install pre-commit-run
+.PHONY: up down logs ps backend frontend test lint lint-local format format-local compose-config migrate pre-commit pre-commit-install pre-commit-run
+
+cmd := docker compose --env-file .env
 
 up:
-	docker compose --env-file .env up --build -d
+	$(cmd) up --build -d
 
 down:
-	docker compose --env-file .env down
+	$(cmd) down
 
 logs:
-	docker compose --env-file .env logs -f
+	$(cmd) logs -f
 
 ps:
-	docker compose --env-file .env ps
+	$(cmd) ps
 
 backend:
-	docker compose --env-file .env up --build backend postgres minio kafka
+	$(cmd) up --build backend postgres minio kafka
 
 frontend:
-	docker compose --env-file .env up --build frontend backend
+	$(cmd) up --build frontend backend
 
 test:
-	docker compose --env-file .env run --rm backend uv run pytest
+	$(cmd) run --rm backend uv run pytest -n 4 tests
 
 lint:
-	docker compose --env-file .env run --rm backend uv run ruff check .
-	docker compose --env-file .env run --rm frontend pnpm lint
+	$(cmd) run --rm backend uv run ruff check .
+	$(cmd) run --rm frontend pnpm lint
+
+lint-local:
+	cd backend && uv run ruff check .
 
 format:
-	docker compose --env-file .env run --rm backend uv run ruff format .
-	docker compose --env-file .env run --rm frontend pnpm format
+	$(cmd) run --rm backend uv run ruff format .
+	$(cmd) run --rm frontend pnpm format
+
+format-local:
+	cd backend && uv run ruff format .
 
 compose-config:
-	docker compose --env-file .env config
+	$(cmd) config
 
 migrate:
-	docker compose --env-file .env run --rm backend uv run alembic upgrade head
+	$(cmd) run --rm backend uv run alembic upgrade head
 
 pre-commit: pre-commit-run
 
