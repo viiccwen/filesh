@@ -3,7 +3,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+
+class UserUpdateRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=50)
+    nickname: str = Field(min_length=1, max_length=100)
 
 
 class UserRead(BaseModel):

@@ -153,6 +153,71 @@ def test_get_me_rejects_missing_user(client) -> None:
     assert response.json()["detail"] == "User not found"
 
 
+def test_update_me_updates_username_and_nickname(client) -> None:
+    client.post(
+        "/api/auth/register",
+        json={
+            "email": "edit-me@example.com",
+            "username": "edit-me",
+            "nickname": "Edit Me",
+            "password": "secret123",
+        },
+    )
+    login_response = client.post(
+        "/api/auth/login",
+        json={"identifier": "edit-me@example.com", "password": "secret123"},
+    )
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+
+    update_response = client.patch(
+        "/api/users/me",
+        headers=headers,
+        json={"username": "edited-user", "nickname": "Edited Nick"},
+    )
+    me_response = client.get("/api/users/me", headers=headers)
+
+    assert update_response.status_code == 200
+    assert update_response.json()["username"] == "edited-user"
+    assert update_response.json()["nickname"] == "Edited Nick"
+    assert me_response.status_code == 200
+    assert me_response.json()["username"] == "edited-user"
+
+
+def test_update_me_rejects_duplicate_username(client) -> None:
+    client.post(
+        "/api/auth/register",
+        json={
+            "email": "first-user@example.com",
+            "username": "first-user",
+            "nickname": "First",
+            "password": "secret123",
+        },
+    )
+    client.post(
+        "/api/auth/register",
+        json={
+            "email": "second-user@example.com",
+            "username": "second-user",
+            "nickname": "Second",
+            "password": "secret123",
+        },
+    )
+    login_response = client.post(
+        "/api/auth/login",
+        json={"identifier": "second-user@example.com", "password": "secret123"},
+    )
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+
+    update_response = client.patch(
+        "/api/users/me",
+        headers=headers,
+        json={"username": "first-user", "nickname": "Still Second"},
+    )
+
+    assert update_response.status_code == 409
+    assert update_response.json()["detail"] == "Username taken"
+
+
 def test_login_rejects_inactive_user(client, session) -> None:
     client.post(
         "/api/auth/register",

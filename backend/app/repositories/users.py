@@ -24,5 +24,9 @@ def get_user_by_identifier(session: Session, identifier: str) -> User | None:
     )
 
 
+def get_user_by_username(session: Session, username: str) -> User | None:
+    return session.scalar(select(User).where(User.username == username))
+
+
 def get_active_user_by_id(session: Session, user_id) -> User | None:
     return session.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))

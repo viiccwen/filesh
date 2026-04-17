@@ -7,6 +7,7 @@ from app.application.use_cases.auth import AuthUseCase
 from app.application.use_cases.files import FileUseCase
 from app.application.use_cases.folders import FolderUseCase
 from app.application.use_cases.share_access import ShareAccessUseCase
+from app.application.use_cases.users import UserUseCase
 from app.core.db import get_db_session
 from app.core.events import EventPublisher
 from app.core.storage import ObjectStorage
@@ -46,3 +47,9 @@ def get_share_access_use_case(
     event_publisher: EventPublisher = event_publisher_dependency,
 ) -> ShareAccessUseCase:
     return ShareAccessUseCase(session, object_storage, event_publisher)
+
+
+def get_user_use_case(
+    session: Session = db_session_dependency,
+) -> UserUseCase:
+    return UserUseCase(session)
