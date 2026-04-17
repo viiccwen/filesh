@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from opentelemetry import trace
+from opentelemetry.context import attach, detach
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+
+from app.core.events import build_cleanup_event
 from app.core.observability import get_or_create_request_id
+from app.core.tracing import TRACE_CONTEXT_METADATA_KEY
 from tests_helpers import register_and_login
 
 
@@ -59,3 +65,23 @@ def test_cleanup_events_include_request_correlation_id(client, event_publisher) 
     assert (
         event_publisher.events[-1].payload["metadata"]["correlation_id"] == "cleanup-correlation-id"
     )
+
+
+def test_cleanup_events_include_trace_context(monkeypatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.tracing_enabled", True)
+    span_context = SpanContext(
+        trace_id=0x1234567890ABCDEF1234567890ABCDEF,
+        span_id=0x1234567890ABCDEF,
+        is_remote=False,
+        trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        trace_state=trace.DEFAULT_TRACE_STATE,
+    )
+    context = trace.set_span_in_context(NonRecordingSpan(span_context))
+    token = attach(context)
+    try:
+        event = build_cleanup_event("file.delete_requested")
+    finally:
+        detach(token)
+
+    assert TRACE_CONTEXT_METADATA_KEY in event["metadata"]
+    assert "traceparent" in event["metadata"][TRACE_CONTEXT_METADATA_KEY]

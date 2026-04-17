@@ -6,6 +6,8 @@ services:
       - .env
     environment:
       UV_LINK_MODE: copy
+      OTEL_SERVICE_NAME: "filesh-backend"
+      TRACING_ENABLED: "true"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -17,6 +19,8 @@ services:
       minio-init:
         condition: service_completed_successfully
       kafka:
+        condition: service_started
+      alloy:
         condition: service_started
     command:
       - sh
@@ -36,6 +40,8 @@ services:
       UV_LINK_MODE: copy
       KAFKA_PUBLISHER_ENABLED: "true"
       WORKER_METRICS_PORT: "9101"
+      OTEL_SERVICE_NAME: "filesh-cleanup-worker"
+      TRACING_ENABLED: "true"
     volumes:
       - ./backend:/app
       - backend-venv:/app/.venv
@@ -43,6 +49,8 @@ services:
       minio-init:
         condition: service_completed_successfully
       kafka:
+        condition: service_started
+      alloy:
         condition: service_started
     command:
       - sh
@@ -135,9 +143,12 @@ services:
       - ./infra/alloy/config.alloy:/etc/alloy/config.alloy:ro
     ports:
       - "12345:12345"
+      - "4317:4317"
+      - "4318:4318"
     depends_on:
       - loki
       - prometheus
+      - tempo
 
   prometheus:
     image: prom/prometheus:v3.2.1
@@ -158,6 +169,15 @@ services:
     ports:
       - "3100:3100"
 
+  tempo:
+    image: grafana/tempo:2.7.1
+    command:
+      - -config.file=/etc/tempo/config.yml
+    volumes:
+      - ./infra/tempo/config.yml:/etc/tempo/config.yml:ro
+    ports:
+      - "3200:3200"
+
   grafana:
     image: grafana/grafana:11.5.2
     environment:
@@ -170,6 +190,7 @@ services:
     depends_on:
       - prometheus
       - loki
+      - tempo
 
 volumes:
   backend-venv:

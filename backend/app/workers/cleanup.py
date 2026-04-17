@@ -18,8 +18,17 @@ from app.core.observability import (
     start_metrics_server,
 )
 from app.core.storage import MinioObjectStorage, ObjectStorage
+from app.core.tracing import (
+    WORKER_SPAN_KIND,
+    configure_tracing,
+    extract_trace_context,
+    get_tracer,
+    record_span_exception,
+    set_span_attributes,
+)
 
 logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
 
 
 def iter_cleanup_objects(event: dict[str, Any]) -> Iterable[tuple[str, str]]:
@@ -215,62 +224,81 @@ def process_cleanup_message(
     event_type = str(event.get("event_type"))
     observe_consumer_position(consumer, message)
     wait_until_scheduled(event)
-    try:
-        logger.info(
-            "processing cleanup event",
-            extra=request_log_extra(
-                event_type=event_type,
-                attempt=get_event_attempt(event),
-                topic=topic,
-            ),
+    parent_context = extract_trace_context(event.get("metadata"))
+    with tracer.start_as_current_span(
+        f"cleanup {event_type}",
+        context=parent_context,
+        kind=WORKER_SPAN_KIND,
+    ) as span:
+        set_span_attributes(
+            span,
+            {
+                "messaging.system": "kafka",
+                "messaging.destination.name": topic,
+                "messaging.kafka.offset": getattr(message, "offset", None),
+                "messaging.kafka.partition": getattr(message, "partition", None),
+                "cleanup.event_type": event_type,
+                "cleanup.attempt": get_event_attempt(event),
+                "cleanup.correlation_id": event.get("metadata", {}).get("correlation_id"),
+            },
         )
-        handle_cleanup_event(event, storage)
-        observe_cleanup_event(
-            event_type=event_type,
-            topic=topic,
-            outcome="processed",
-            duration=current_time() - started_at,
-        )
-    except Exception as exc:
-        if get_event_attempt(event) >= get_event_max_retries(event):
-            publisher.publish(
-                settings.kafka_cleanup_dlq_topic,
-                get_event_key(event, str(getattr(message, "offset", "dlq"))),
-                build_dlq_event(event, exc),
-            )
-            observe_cleanup_event(
-                event_type=event_type,
-                topic=topic,
-                outcome="dlq",
-                duration=current_time() - started_at,
-            )
-            logger.exception(
-                "cleanup event sent to dlq",
-                extra=request_log_extra(event_type=event_type, topic=topic),
-            )
-        else:
-            retry_event = schedule_retry_event(event, exc)
-            publisher.publish(
-                settings.kafka_cleanup_retry_topic,
-                get_event_key(retry_event, str(getattr(message, "offset", "retry"))),
-                retry_event,
-            )
-            observe_cleanup_event(
-                event_type=event_type,
-                topic=topic,
-                outcome="retry",
-                duration=current_time() - started_at,
-            )
-            logger.warning(
-                "cleanup event scheduled for retry",
+        try:
+            logger.info(
+                "processing cleanup event",
                 extra=request_log_extra(
                     event_type=event_type,
-                    attempt=get_event_attempt(retry_event),
+                    attempt=get_event_attempt(event),
                     topic=topic,
                 ),
             )
-    finally:
-        consumer.commit()
+            handle_cleanup_event(event, storage)
+            observe_cleanup_event(
+                event_type=event_type,
+                topic=topic,
+                outcome="processed",
+                duration=current_time() - started_at,
+            )
+        except Exception as exc:
+            record_span_exception(span, exc)
+            if get_event_attempt(event) >= get_event_max_retries(event):
+                publisher.publish(
+                    settings.kafka_cleanup_dlq_topic,
+                    get_event_key(event, str(getattr(message, "offset", "dlq"))),
+                    build_dlq_event(event, exc),
+                )
+                observe_cleanup_event(
+                    event_type=event_type,
+                    topic=topic,
+                    outcome="dlq",
+                    duration=current_time() - started_at,
+                )
+                logger.exception(
+                    "cleanup event sent to dlq",
+                    extra=request_log_extra(event_type=event_type, topic=topic),
+                )
+            else:
+                retry_event = schedule_retry_event(event, exc)
+                publisher.publish(
+                    settings.kafka_cleanup_retry_topic,
+                    get_event_key(retry_event, str(getattr(message, "offset", "retry"))),
+                    retry_event,
+                )
+                observe_cleanup_event(
+                    event_type=event_type,
+                    topic=topic,
+                    outcome="retry",
+                    duration=current_time() - started_at,
+                )
+                logger.warning(
+                    "cleanup event scheduled for retry",
+                    extra=request_log_extra(
+                        event_type=event_type,
+                        attempt=get_event_attempt(retry_event),
+                        topic=topic,
+                    ),
+                )
+        finally:
+            consumer.commit()
 
 
 def consume_cleanup_events(
@@ -331,6 +359,7 @@ def replay_dlq_events(
 
 def run_cleanup_worker() -> None:
     configure_logging()
+    configure_tracing(service_name="filesh-cleanup-worker")
     start_metrics_server(settings.worker_metrics_port)
     ensure_cleanup_topics()
     storage = MinioObjectStorage()
@@ -344,6 +373,7 @@ def run_cleanup_worker() -> None:
 
 def run_cleanup_dlq_replay(*, limit: int, dry_run: bool) -> int:
     configure_logging()
+    configure_tracing(service_name="filesh-cleanup-dlq-replay")
     publisher = KafkaEventPublisher()
     consumer = build_dlq_replay_consumer()
     try:

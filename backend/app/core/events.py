@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from app.core.config import settings
 from app.core.observability import get_request_id
+from app.core.tracing import inject_trace_context
 
 
 class CleanupEventType:
@@ -62,7 +63,7 @@ def build_cleanup_event(
     objects: list[dict[str, str]] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    event_metadata = dict(metadata or {})
+    event_metadata = inject_trace_context(metadata)
     correlation_id = get_request_id()
     if correlation_id and "correlation_id" not in event_metadata:
         event_metadata["correlation_id"] = correlation_id

@@ -2,3 +2,32 @@ logging {
   level = "info"
   format = "logfmt"
 }
+
+otelcol.receiver.otlp "filesh" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    traces = [otelcol.processor.batch.filesh.input]
+  }
+}
+
+otelcol.processor.batch "filesh" {
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}

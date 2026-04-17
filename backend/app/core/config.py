@@ -73,6 +73,20 @@ class Settings(BaseSettings):
     log_json: bool = Field(default=True, alias="LOG_JSON")
     metrics_enabled: bool = Field(default=True, alias="METRICS_ENABLED")
     worker_metrics_port: int = Field(default=9101, alias="WORKER_METRICS_PORT")
+    tracing_enabled: bool = Field(default=False, alias="TRACING_ENABLED")
+    otel_exporter_otlp_endpoint: str = Field(
+        default="http://alloy:4317",
+        alias="OTEL_EXPORTER_OTLP_ENDPOINT",
+    )
+    otel_exporter_otlp_insecure: bool = Field(
+        default=True,
+        alias="OTEL_EXPORTER_OTLP_INSECURE",
+    )
+    otel_service_namespace: str = Field(
+        default="filesh",
+        alias="OTEL_SERVICE_NAMESPACE",
+    )
+    otel_service_name: str = Field(default="filesh-backend", alias="OTEL_SERVICE_NAME")
     jwt_secret: str = Field(default=DEFAULT_JWT_SECRET, alias="JWT_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
