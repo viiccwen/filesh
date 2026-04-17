@@ -85,6 +85,28 @@ class FolderContentsDTO(BaseModel):
     files: list[FileSummaryDTO]
 
 
+class ResourceSearchPaginationDTO(BaseModel):
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
+class FolderSearchItemDTO(BaseModel):
+    item_type: str = "FOLDER"
+    folder: FolderDTO
+
+
+class FileSearchItemDTO(BaseModel):
+    item_type: str = "FILE"
+    file: FileSummaryDTO
+
+
+class ResourceSearchResponseDTO(BaseModel):
+    items: list[FolderSearchItemDTO | FileSearchItemDTO]
+    pagination: ResourceSearchPaginationDTO
+
+
 class UploadInitDTO(BaseModel):
     session_id: uuid.UUID
     resolved_filename: str

@@ -1,4 +1,11 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowDownToLineIcon,
   ChevronRightIcon,
@@ -81,6 +88,8 @@ import {
   type FileSummary,
   type Folder,
   type FolderContents,
+  type ResourceSearchItem,
+  type ResourceSearchResponse,
   type Share,
   type ShareFormValues,
 } from "@/features/workspace/schemas";
@@ -93,6 +102,7 @@ import {
   getFolderShare,
   getRootFolder,
   revokeFolderShare,
+  searchResources,
   updateFolderShare,
   uploadFile,
 } from "@/lib/api";
@@ -103,25 +113,7 @@ type FolderNode = {
   childFolderIds: string[];
 };
 
-type SortKey = "name" | "updatedAt" | "size" | "kind";
-
-type WorkspaceItem =
-  | {
-      id: string;
-      kind: "folder";
-      name: string;
-      updatedAt: string;
-      folder: Folder;
-    }
-  | {
-      id: string;
-      kind: "file";
-      name: string;
-      size: number;
-      status: string;
-      updatedAt: string;
-      file: FileSummary;
-    };
+type SortKey = "name" | "updated_at" | "size" | "type";
 
 const PAGE_SIZE_OPTIONS = ["8", "16", "24"];
 
@@ -131,11 +123,16 @@ export function WorkspaceScreen() {
   const logout = useAuthStore((state) => state.logout);
 
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const searchRequestIdRef = useRef(0);
+  const lastSearchSignatureRef = useRef<string | null>(null);
 
   const [rootFolderId, setRootFolderId] = useState<string | null>(null);
   const [contents, setContents] = useState<FolderContents | null>(null);
+  const [resourceResults, setResourceResults] =
+    useState<ResourceSearchResponse | null>(null);
   const [share, setShare] = useState<Share | null>(null);
   const [workspacePending, setWorkspacePending] = useState(false);
+  const [resourcePending, setResourcePending] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState("");
   const [folderPending, setFolderPending] = useState(false);
@@ -143,6 +140,7 @@ export function WorkspaceScreen() {
   const [sharePending, setSharePending] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [pageSize, setPageSize] = useState(8);
@@ -161,89 +159,46 @@ export function WorkspaceScreen() {
   }, [accessToken]);
 
   useEffect(() => {
-    setPageIndex(1);
-  }, [searchQuery, sortDirection, sortKey, pageSize, contents?.folder.id]);
-
-  const items = useMemo<WorkspaceItem[]>(() => {
-    if (!contents) {
-      return [];
+    if (!accessToken || !contents) {
+      return;
     }
 
-    return [
-      ...contents.folders.map((folder) => ({
-        id: folder.id,
-        kind: "folder" as const,
-        name: folder.name,
-        updatedAt: folder.updated_at,
-        folder,
-      })),
-      ...contents.files.map((file) => ({
-        id: file.id,
-        kind: "file" as const,
-        name: file.stored_filename,
-        size: file.size_bytes,
-        status: file.status,
-        updatedAt: file.updated_at,
-        file,
-      })),
-    ];
-  }, [contents]);
+    void loadResourceResults(accessToken, contents.folder.id);
+  }, [
+    accessToken,
+    contents?.folder.id,
+    deferredSearchQuery,
+    pageIndex,
+    pageSize,
+    sortDirection,
+    sortKey,
+  ]);
 
-  const filteredItems = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-    return items.filter((item) =>
-      normalizedQuery
-        ? item.name.toLowerCase().includes(normalizedQuery)
-        : true,
-    );
-  }, [items, searchQuery]);
+  useEffect(() => {
+    setPageIndex(1);
+  }, [
+    contents?.folder.id,
+    deferredSearchQuery,
+    pageSize,
+    sortDirection,
+    sortKey,
+  ]);
 
-  const sortedItems = useMemo(() => {
-    const nextItems = [...filteredItems];
-    const factor = sortDirection === "asc" ? 1 : -1;
-
-    nextItems.sort((left, right) => {
-      switch (sortKey) {
-        case "kind":
-          return left.kind.localeCompare(right.kind) * factor;
-        case "size":
-          return (
-            (("size" in left ? left.size : -1) -
-              ("size" in right ? right.size : -1)) *
-            factor
-          );
-        case "updatedAt":
-          return (
-            (new Date(left.updatedAt).getTime() -
-              new Date(right.updatedAt).getTime()) *
-            factor
-          );
-        case "name":
-        default:
-          return (
-            left.name.localeCompare(right.name, undefined, {
-              sensitivity: "base",
-            }) * factor
-          );
-      }
-    });
-
-    return nextItems;
-  }, [filteredItems, sortDirection, sortKey]);
-
-  const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
-  const paginatedItems = useMemo(() => {
-    const start = (pageIndex - 1) * pageSize;
-    return sortedItems.slice(start, start + pageSize);
-  }, [pageIndex, pageSize, sortedItems]);
-
-  const folderItems = paginatedItems.filter(
-    (item): item is Extract<WorkspaceItem, { kind: "folder" }> =>
-      item.kind === "folder",
+  const folderItems = useMemo(
+    () =>
+      (resourceResults?.items ?? []).filter(
+        (item): item is Extract<ResourceSearchItem, { item_type: "FOLDER" }> =>
+          item.item_type === "FOLDER",
+      ),
+    [resourceResults],
   );
-  const fileItems = paginatedItems.filter(
-    (item): item is Extract<WorkspaceItem, { kind: "file" }> =>
-      item.kind === "file",
+  const fileItems = useMemo(
+    () =>
+      (resourceResults?.items ?? []).filter(
+        (item): item is Extract<ResourceSearchItem, { item_type: "FILE" }> =>
+          item.item_type === "FILE",
+      ),
+    [resourceResults],
   );
 
   const breadcrumbFolders = useMemo(() => {
@@ -284,6 +239,7 @@ export function WorkspaceScreen() {
       setRootFolderId(nextRootId);
       setContents(nextContents);
       setShare(nextShare);
+      await loadResourceResults(token, targetFolderId, { force: true });
       registerFolderTreeNode(nextContents.folder, nextContents.folders);
       setExpandedFolderIds((current) =>
         new Set(current).add(nextContents.folder.id),
@@ -292,6 +248,56 @@ export function WorkspaceScreen() {
       setWorkspaceError(getErrorMessage(error));
     } finally {
       setWorkspacePending(false);
+    }
+  }
+
+  async function loadResourceResults(
+    token: string,
+    folderId: string,
+    options?: { force?: boolean },
+  ) {
+    const querySignature = JSON.stringify({
+      folderId,
+      order: sortDirection,
+      page: pageIndex,
+      pageSize,
+      q: deferredSearchQuery.trim(),
+      sortKey,
+    });
+
+    if (!options?.force && lastSearchSignatureRef.current === querySignature) {
+      return;
+    }
+
+    lastSearchSignatureRef.current = querySignature;
+    const requestId = searchRequestIdRef.current + 1;
+    searchRequestIdRef.current = requestId;
+    setResourcePending(true);
+
+    try {
+      const nextResults = await searchResources(token, {
+        parent_id: folderId,
+        order: sortDirection,
+        page: pageIndex,
+        page_size: pageSize,
+        q: deferredSearchQuery.trim(),
+        sort_by: sortKey,
+      });
+
+      if (searchRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setResourceResults(nextResults);
+    } catch (error) {
+      if (searchRequestIdRef.current === requestId) {
+        lastSearchSignatureRef.current = null;
+        setWorkspaceError(getErrorMessage(error));
+      }
+    } finally {
+      if (searchRequestIdRef.current === requestId) {
+        setResourcePending(false);
+      }
     }
   }
 
@@ -670,9 +676,11 @@ export function WorkspaceScreen() {
                           <SelectContent>
                             <SelectGroup>
                               <SelectItem value="name">Name</SelectItem>
-                              <SelectItem value="updatedAt">Updated</SelectItem>
+                              <SelectItem value="updated_at">
+                                Updated
+                              </SelectItem>
                               <SelectItem value="size">Size</SelectItem>
-                              <SelectItem value="kind">Type</SelectItem>
+                              <SelectItem value="type">Type</SelectItem>
                             </SelectGroup>
                           </SelectContent>
                         </Select>
@@ -806,7 +814,7 @@ export function WorkspaceScreen() {
                       <Skeleton className="h-16 rounded-2xl" />
                       <Skeleton className="h-16 rounded-2xl" />
                     </div>
-                  ) : sortedItems.length === 0 ? (
+                  ) : (resourceResults?.pagination.total_items ?? 0) === 0 ? (
                     <Empty className="border bg-muted/20 py-16">
                       <EmptyHeader>
                         <EmptyMedia variant="icon">
@@ -838,7 +846,7 @@ export function WorkspaceScreen() {
                             </p>
                           </div>
                           <Badge variant="outline">
-                            {folderItems.length} visible
+                            {folderItems.length} on this page
                           </Badge>
                         </div>
 
@@ -876,7 +884,7 @@ export function WorkspaceScreen() {
                             </p>
                           </div>
                           <Badge variant="outline">
-                            {fileItems.length} visible
+                            {fileItems.length} on this page
                           </Badge>
                         </div>
 
@@ -922,13 +930,20 @@ export function WorkspaceScreen() {
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-muted-foreground">
-                  Showing {(pageIndex - 1) * pageSize + 1} to{" "}
-                  {Math.min(pageIndex * pageSize, sortedItems.length)} of{" "}
-                  {sortedItems.length} items
+                  Showing{" "}
+                  {resourceResults?.pagination.total_items
+                    ? (pageIndex - 1) * pageSize + 1
+                    : 0}{" "}
+                  to{" "}
+                  {Math.min(
+                    pageIndex * pageSize,
+                    resourceResults?.pagination.total_items ?? 0,
+                  )}{" "}
+                  of {resourceResults?.pagination.total_items ?? 0} items
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
-                    disabled={pageIndex === 1}
+                    disabled={pageIndex === 1 || resourcePending}
                     onClick={() =>
                       setPageIndex((current) => Math.max(1, current - 1))
                     }
@@ -937,13 +952,21 @@ export function WorkspaceScreen() {
                     Previous
                   </Button>
                   <Badge variant="outline">
-                    Page {pageIndex} of {totalPages}
+                    Page {pageIndex} of{" "}
+                    {resourceResults?.pagination.total_pages ?? 1}
                   </Badge>
                   <Button
-                    disabled={pageIndex >= totalPages}
+                    disabled={
+                      resourcePending ||
+                      pageIndex >=
+                        (resourceResults?.pagination.total_pages ?? 1)
+                    }
                     onClick={() =>
                       setPageIndex((current) =>
-                        Math.min(totalPages, current + 1),
+                        Math.min(
+                          resourceResults?.pagination.total_pages ?? 1,
+                          current + 1,
+                        ),
                       )
                     }
                     variant="outline"

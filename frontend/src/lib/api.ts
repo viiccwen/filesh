@@ -8,11 +8,13 @@ import {
 } from "@/features/auth/schemas";
 import {
   folderContentsSchema,
+  resourceSearchResponseSchema,
   folderSchema,
   shareFormSchema,
   shareSchema,
   type Folder,
   type FolderContents,
+  type ResourceSearchResponse,
   type ShareFormValues,
   type Share,
 } from "@/features/workspace/schemas";
@@ -138,6 +140,54 @@ export function getFolderContents(
     accessToken,
     parse: (value) => folderContentsSchema.parse(value),
   });
+}
+
+export function searchResources(
+  accessToken: string,
+  params: {
+    parent_id: string;
+    q?: string;
+    type?: "FILE" | "FOLDER";
+    sort_by?: "name" | "updated_at" | "size" | "type";
+    order?: "asc" | "desc";
+    page?: number;
+    page_size?: number;
+  },
+): Promise<ResourceSearchResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("parent_id", params.parent_id);
+
+  if (params.q) {
+    searchParams.set("q", params.q);
+  }
+
+  if (params.type) {
+    searchParams.set("type", params.type);
+  }
+
+  if (params.sort_by) {
+    searchParams.set("sort_by", params.sort_by);
+  }
+
+  if (params.order) {
+    searchParams.set("order", params.order);
+  }
+
+  if (params.page) {
+    searchParams.set("page", String(params.page));
+  }
+
+  if (params.page_size) {
+    searchParams.set("page_size", String(params.page_size));
+  }
+
+  return request<ResourceSearchResponse>(
+    `/api/resources/search?${searchParams.toString()}`,
+    {
+      accessToken,
+      parse: (value) => resourceSearchResponseSchema.parse(value),
+    },
+  );
 }
 
 export function createFolder(

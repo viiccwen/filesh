@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from app.application.dto import (
     FileDTO,
+    FileSearchItemDTO,
     FileSummaryDTO,
     FolderContentsDTO,
     FolderDTO,
+    FolderSearchItemDTO,
+    ResourceSearchPaginationDTO,
+    ResourceSearchResponseDTO,
     ShareAccessDTO,
     SharedFolderContentsDTO,
     UploadInitDTO,
@@ -56,6 +60,25 @@ def to_shared_folder_contents_response(
         folders=[FolderDTO.model_validate(item) for item in folders],
         files=[to_file_summary(item) for item in files],
         permission_level=permission_level,
+    )
+
+
+def to_resource_search_response(
+    items: list[FolderSearchItemDTO | FileSearchItemDTO],
+    *,
+    page: int,
+    page_size: int,
+    total_items: int,
+    total_pages: int,
+) -> ResourceSearchResponseDTO:
+    return ResourceSearchResponseDTO(
+        items=items,
+        pagination=ResourceSearchPaginationDTO(
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        ),
     )
 
 

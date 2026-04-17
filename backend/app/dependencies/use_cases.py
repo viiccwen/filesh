@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.application.use_cases.auth import AuthUseCase
 from app.application.use_cases.files import FileUseCase
 from app.application.use_cases.folders import FolderUseCase
+from app.application.use_cases.resources import ResourceUseCase
 from app.application.use_cases.share_access import ShareAccessUseCase
 from app.application.use_cases.users import UserUseCase
 from app.core.db import get_db_session
@@ -39,6 +40,12 @@ def get_file_use_case(
     event_publisher: EventPublisher = event_publisher_dependency,
 ) -> FileUseCase:
     return FileUseCase(session, object_storage, event_publisher)
+
+
+def get_resource_use_case(
+    session: Session = db_session_dependency,
+) -> ResourceUseCase:
+    return ResourceUseCase(session)
 
 
 def get_share_access_use_case(

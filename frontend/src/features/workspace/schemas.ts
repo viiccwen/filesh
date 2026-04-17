@@ -26,6 +26,29 @@ export const folderContentsSchema = z.object({
   files: z.array(fileSummarySchema),
 });
 
+export const resourceSearchItemSchema = z.discriminatedUnion("item_type", [
+  z.object({
+    item_type: z.literal("FOLDER"),
+    folder: folderSchema,
+  }),
+  z.object({
+    item_type: z.literal("FILE"),
+    file: fileSummarySchema,
+  }),
+]);
+
+export const resourceSearchPaginationSchema = z.object({
+  page: z.number().int().positive(),
+  page_size: z.number().int().positive(),
+  total_items: z.number().int().nonnegative(),
+  total_pages: z.number().int().positive(),
+});
+
+export const resourceSearchResponseSchema = z.object({
+  items: z.array(resourceSearchItemSchema),
+  pagination: resourceSearchPaginationSchema,
+});
+
 export const shareSchema = z.object({
   id: z.string().uuid(),
   resource_type: z.enum(["FILE", "FOLDER"]),
@@ -48,5 +71,9 @@ export const shareFormSchema = z.object({
 export type Folder = z.infer<typeof folderSchema>;
 export type FileSummary = z.infer<typeof fileSummarySchema>;
 export type FolderContents = z.infer<typeof folderContentsSchema>;
+export type ResourceSearchItem = z.infer<typeof resourceSearchItemSchema>;
+export type ResourceSearchResponse = z.infer<
+  typeof resourceSearchResponseSchema
+>;
 export type Share = z.infer<typeof shareSchema>;
 export type ShareFormValues = z.infer<typeof shareFormSchema>;
