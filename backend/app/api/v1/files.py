@@ -13,6 +13,7 @@ from app.domain import AppError
 from app.models import User
 from app.schemas.file import (
     FileRead,
+    FileRenameRequest,
     UploadFailRequest,
     UploadFinalizeRequest,
     UploadInitRequest,
@@ -115,6 +116,19 @@ def remove_file(
     try:
         use_case.delete(file_id, current_user)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.patch("/{file_id}", response_model=FileRead)
+def rename_file(
+    file_id: uuid.UUID,
+    payload: FileRenameRequest,
+    current_user: User = current_user_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
+) -> FileRead:
+    try:
+        return use_case.rename(file_id, current_user, payload)
     except AppError as exc:
         raise to_http_exception(exc) from exc
 

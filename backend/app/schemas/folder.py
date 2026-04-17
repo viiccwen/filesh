@@ -13,6 +13,10 @@ class FolderCreateRequest(BaseModel):
     parent_id: uuid.UUID | None = None
 
 
+class FolderRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
 class FolderRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

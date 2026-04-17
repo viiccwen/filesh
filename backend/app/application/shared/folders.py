@@ -107,6 +107,37 @@ def list_descendant_folder_ids(
     return folder_repository.list_descendant_folder_ids(session, owner_id, folder.path_cache)
 
 
+def rename_folder(session: Session, folder_id: uuid.UUID, owner_id: uuid.UUID, name: str) -> Folder:
+    folder = get_folder_for_owner(session, folder_id, owner_id)
+    if folder.parent_id is None and folder.name == ROOT_FOLDER_NAME:
+        raise ValidationError("Root folder cannot be renamed")
+    if name == ROOT_FOLDER_NAME:
+        raise ValidationError("Folder name is reserved")
+
+    parent = get_folder_for_owner(session, folder.parent_id, owner_id) if folder.parent_id else None
+    old_path = folder.path_cache or build_folder_path(parent, folder.name)
+    new_path = build_folder_path(parent, name)
+
+    descendants = folder_repository.list_descendant_folders(session, owner_id, old_path)
+    folder.name = name
+    folder.path_cache = new_path
+    for descendant in descendants:
+        if descendant.id == folder.id:
+            continue
+        if descendant.path_cache is None:
+            continue
+        descendant.path_cache = descendant.path_cache.replace(old_path, new_path, 1)
+
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("Folder name already exists in this location") from exc
+
+    session.refresh(folder)
+    return folder
+
+
 def list_descendant_files(session: Session, folder_ids: list[uuid.UUID]) -> list[File]:
     return file_repository.list_files_by_folder_ids(session, folder_ids)
 

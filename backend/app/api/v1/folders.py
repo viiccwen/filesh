@@ -10,7 +10,12 @@ from app.dependencies.auth import get_current_user
 from app.dependencies.use_cases import get_folder_use_case
 from app.domain import AppError
 from app.models import User
-from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
+from app.schemas.folder import (
+    FolderContentsResponse,
+    FolderCreateRequest,
+    FolderRead,
+    FolderRenameRequest,
+)
 from app.schemas.share import ShareRead, ShareUpsertRequest
 
 router = APIRouter()
@@ -74,6 +79,19 @@ def remove_folder(
     try:
         use_case.delete(folder_id, current_user)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.patch("/{folder_id}", response_model=FolderRead)
+def rename(
+    folder_id: uuid.UUID,
+    payload: FolderRenameRequest,
+    current_user: User = current_user_dependency,
+    use_case: FolderUseCase = folder_use_case_dependency,
+) -> FolderRead:
+    try:
+        return use_case.rename(folder_id, current_user, payload)
     except AppError as exc:
         raise to_http_exception(exc) from exc
 

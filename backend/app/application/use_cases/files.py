@@ -9,6 +9,7 @@ from app.application.shared.files import (
     finalize_upload,
     get_file_for_owner,
     init_upload,
+    rename_file,
     upload_content,
 )
 from app.application.shared.presenters import to_upload_init_response
@@ -18,6 +19,7 @@ from app.core.storage import ObjectStorage
 from app.models import ResourceType, User
 from app.schemas.file import (
     FileRead,
+    FileRenameRequest,
     UploadFailRequest,
     UploadFinalizeRequest,
     UploadInitRequest,
@@ -75,6 +77,15 @@ class FileUseCase:
 
     def delete(self, file_id: uuid.UUID, current_user: User) -> None:
         delete_file(self.session, file_id, current_user.id, self.event_publisher)
+
+    def rename(
+        self,
+        file_id: uuid.UUID,
+        current_user: User,
+        payload: FileRenameRequest,
+    ) -> FileRead:
+        file = rename_file(self.session, file_id, current_user.id, payload.filename)
+        return FileRead.model_validate(file)
 
     def get_share(self, file_id: uuid.UUID, current_user: User) -> ShareRead:
         return get_share(self.session, current_user, ResourceType.FILE, file_id)

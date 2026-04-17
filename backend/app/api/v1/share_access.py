@@ -20,7 +20,7 @@ router = APIRouter()
 optional_user_dependency = Depends(get_optional_current_user)
 share_access_use_case_dependency = Depends(get_share_access_use_case)
 shared_upload_file_dependency = File(...)
-shared_upload_folder_dependency = Form(default=None)
+shared_upload_folder_dependency = Form()
 
 
 @router.get("/s/{token}", response_model=ShareAccessResponse)
@@ -94,7 +94,7 @@ def create_shared_folder(
 async def upload_shared_file(
     token: str,
     file: Annotated[UploadFile, shared_upload_file_dependency],
-    folder_id: Annotated[uuid.UUID | None, shared_upload_folder_dependency],
+    folder_id: Annotated[uuid.UUID | None, shared_upload_folder_dependency] = None,
     current_user: User | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> FileRead:

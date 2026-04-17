@@ -37,6 +37,10 @@ class FileRead(BaseModel):
     updated_at: datetime
 
 
+class FileRenameRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+
+
 class UploadInitRequest(BaseModel):
     folder_id: uuid.UUID
     filename: str = Field(min_length=1, max_length=255)

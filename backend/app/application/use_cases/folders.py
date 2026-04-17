@@ -8,12 +8,18 @@ from app.application.shared.folders import (
     get_folder_for_owner,
     get_or_create_root_folder,
     list_folder_contents,
+    rename_folder,
 )
 from app.application.shared.presenters import to_folder_contents_response
 from app.application.shared.shares import create_share, get_share, revoke_share, update_share
 from app.core.events import EventPublisher
 from app.models import ResourceType, User
-from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
+from app.schemas.folder import (
+    FolderContentsResponse,
+    FolderCreateRequest,
+    FolderRead,
+    FolderRenameRequest,
+)
 from app.schemas.share import ShareRead, ShareUpsertRequest
 
 
@@ -40,6 +46,15 @@ class FolderUseCase:
 
     def delete(self, folder_id: uuid.UUID, current_user: User) -> None:
         delete_folder(self.session, folder_id, current_user.id, self.event_publisher)
+
+    def rename(
+        self,
+        folder_id: uuid.UUID,
+        current_user: User,
+        payload: FolderRenameRequest,
+    ) -> FolderRead:
+        folder = rename_folder(self.session, folder_id, current_user.id, payload.name)
+        return FolderRead.model_validate(folder)
 
     def get_share(self, folder_id: uuid.UUID, current_user: User) -> ShareRead:
         return get_share(self.session, current_user, ResourceType.FOLDER, folder_id)

@@ -62,6 +62,24 @@ def list_descendant_folder_ids(
     )
 
 
+def list_descendant_folders(
+    session: Session,
+    owner_id: uuid.UUID,
+    path_prefix: str,
+) -> list[Folder]:
+    return list(
+        session.scalars(
+            select(Folder).where(
+                Folder.owner_id == owner_id,
+                (
+                    (Folder.path_cache == path_prefix)
+                    | Folder.path_cache.startswith(f"{path_prefix}/")
+                ),
+            )
+        )
+    )
+
+
 def list_upload_sessions_by_folder_ids(
     session: Session,
     folder_ids: list[uuid.UUID],

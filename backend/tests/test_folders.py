@@ -135,3 +135,40 @@ def test_delete_folder_removes_resource(client) -> None:
 
     assert delete_response.status_code == 204
     assert get_response.status_code == 404
+
+
+def test_rename_folder_updates_subtree_paths(client) -> None:
+    headers = register_and_login(client, "rename-folder@example.com", "rename-folder-user")
+    parent_response = client.post("/api/folders", headers=headers, json={"name": "projects"})
+    child_response = client.post(
+        "/api/folders",
+        headers=headers,
+        json={"name": "2026", "parent_id": parent_response.json()["id"]},
+    )
+
+    rename_response = client.patch(
+        f"/api/folders/{parent_response.json()['id']}",
+        headers=headers,
+        json={"name": "archives"},
+    )
+    child_get_response = client.get(f"/api/folders/{child_response.json()['id']}", headers=headers)
+
+    assert rename_response.status_code == 200
+    assert rename_response.json()["name"] == "archives"
+    assert rename_response.json()["path_cache"] == "/archives"
+    assert child_get_response.status_code == 200
+    assert child_get_response.json()["path_cache"] == "/archives/2026"
+
+
+def test_rename_root_folder_is_forbidden(client) -> None:
+    headers = register_and_login(client, "rename-root@example.com", "rename-root-user")
+    root_response = client.get("/api/folders/root", headers=headers)
+
+    rename_response = client.patch(
+        f"/api/folders/{root_response.json()['id']}",
+        headers=headers,
+        json={"name": "new-root"},
+    )
+
+    assert rename_response.status_code == 400
+    assert rename_response.json()["detail"] == "Root folder cannot be renamed"

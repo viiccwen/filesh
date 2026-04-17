@@ -271,3 +271,86 @@ def test_delete_file_removes_resource_and_folder_contents_shows_file(client, ses
         session.scalar(select(File).where(File.id == uuid.UUID(finalize_response.json()["id"])))
         is None
     )
+
+
+def test_rename_file_updates_visible_name(client) -> None:
+    headers = register_and_login(client, "rename-file@example.com", "rename-file-user")
+    root_response = client.get("/api/folders/root", headers=headers)
+    init_response = client.post(
+        "/api/files/upload/init",
+        headers=headers,
+        json={"folder_id": root_response.json()["id"], "filename": "draft.txt", "expected_size": 5},
+    )
+    client.post(
+        f"/api/files/upload/{init_response.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("draft.txt", b"hello", "text/plain")},
+    )
+    finalize_response = client.post(
+        "/api/files/upload/finalize",
+        headers=headers,
+        json={"upload_session_id": init_response.json()["session_id"], "size_bytes": 5},
+    )
+
+    rename_response = client.patch(
+        f"/api/files/{finalize_response.json()['id']}",
+        headers=headers,
+        json={"filename": "report.txt"},
+    )
+    contents_response = client.get(
+        f"/api/folders/{root_response.json()['id']}/contents",
+        headers=headers,
+    )
+
+    assert rename_response.status_code == 200
+    assert rename_response.json()["stored_filename"] == "report.txt"
+    assert rename_response.json()["original_filename"] == "report.txt"
+    assert rename_response.json()["version"] == 2
+    assert [item["stored_filename"] for item in contents_response.json()["files"]] == ["report.txt"]
+
+
+def test_rename_file_rejects_duplicate_sibling_name(client) -> None:
+    headers = register_and_login(client, "rename-dupe@example.com", "rename-dupe-user")
+    root_response = client.get("/api/folders/root", headers=headers)
+
+    first_init = client.post(
+        "/api/files/upload/init",
+        headers=headers,
+        json={"folder_id": root_response.json()["id"], "filename": "one.txt", "expected_size": 3},
+    )
+    client.post(
+        f"/api/files/upload/{first_init.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("one.txt", b"one", "text/plain")},
+    )
+    first_finalize = client.post(
+        "/api/files/upload/finalize",
+        headers=headers,
+        json={"upload_session_id": first_init.json()["session_id"], "size_bytes": 3},
+    )
+
+    second_init = client.post(
+        "/api/files/upload/init",
+        headers=headers,
+        json={"folder_id": root_response.json()["id"], "filename": "two.txt", "expected_size": 3},
+    )
+    client.post(
+        f"/api/files/upload/{second_init.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("two.txt", b"two", "text/plain")},
+    )
+    second_finalize = client.post(
+        "/api/files/upload/finalize",
+        headers=headers,
+        json={"upload_session_id": second_init.json()["session_id"], "size_bytes": 3},
+    )
+
+    rename_response = client.patch(
+        f"/api/files/{second_finalize.json()['id']}",
+        headers=headers,
+        json={"filename": "one.txt"},
+    )
+
+    assert first_finalize.status_code == 200
+    assert rename_response.status_code == 409
+    assert rename_response.json()["detail"] == "File name already exists in this location"

@@ -254,6 +254,31 @@ def get_file_for_owner(session: Session, file_id: uuid.UUID, owner_id: uuid.UUID
     return file
 
 
+def rename_file(session: Session, file_id: uuid.UUID, owner_id: uuid.UUID, filename: str) -> File:
+    file = get_file_for_owner(session, file_id, owner_id)
+    normalized_filename = normalize_filename(filename)
+    sibling_filenames = file_repository.list_filenames_in_folder(session, file.folder_id) - {
+        file.stored_filename
+    }
+    if normalized_filename in sibling_filenames:
+        raise ConflictError("File name already exists in this location")
+
+    resolved_filename = normalized_filename
+    extension = split_filename(resolved_filename)[1].lstrip(".") or None
+    file.original_filename = normalized_filename
+    file.stored_filename = resolved_filename
+    file.extension = extension
+    file.version += 1
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("File name already exists in this location") from exc
+
+    session.refresh(file)
+    return file
+
+
 def download_file_content(storage: ObjectStorage, file: File) -> bytes:
     stored_object = storage.get_object(file.storage_bucket, file.object_key)
     return stored_object.data
