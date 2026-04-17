@@ -74,15 +74,6 @@ export function LandingPage() {
           <div className="absolute bottom-0 left-10 size-56 rounded-full bg-primary/8 blur-3xl" />
 
           <section className="relative flex max-w-4xl flex-col items-center gap-8 text-center">
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <Badge className="rounded-full px-3 py-1" variant="outline">
-                Product landing
-              </Badge>
-              <Badge className="rounded-full px-3 py-1" variant="secondary">
-                Workspace-first sharing
-              </Badge>
-            </div>
-
             <div>
               <h1 className="mx-auto max-w-4xl text-5xl leading-none tracking-[-0.06em] text-balance text-foreground sm:text-6xl lg:text-7xl">
                 filesh keeps file sharing clear, fast, and controlled.

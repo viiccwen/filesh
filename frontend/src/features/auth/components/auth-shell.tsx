@@ -253,10 +253,10 @@ function AuthCardFrame({
   title: string;
 }) {
   return (
-    <Card className="rounded-[2rem] border-border/70">
-      <CardHeader>
+    <Card className="w-full rounded-[2.25rem] border-border/70 bg-background/82 shadow-xl shadow-black/5 ring-1 ring-white/50 backdrop-blur-xl">
+      <CardHeader className="items-center text-center">
         <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription className="max-w-sm">{description}</CardDescription>
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
