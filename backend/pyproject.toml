@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Backend service for the file sharing application"
 requires-python = ">=3.13"
 dependencies = [
+  "alembic>=1.15.2",
   "fastapi>=0.115.12",
   "pydantic-settings>=2.8.1",
   "python-json-logger>=2.0.7",
@@ -15,6 +16,7 @@ dependencies = [
 [dependency-groups]
 dev = [
   "httpx>=0.28.1",
+  "pre-commit>=4.5.1",
   "pytest>=8.3.5",
   "pytest-asyncio>=0.26.0",
   "ruff>=0.11.5",
@@ -29,3 +31,6 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.alembic]
+script_location = "alembic"
