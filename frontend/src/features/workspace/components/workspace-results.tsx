@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -97,7 +96,6 @@ export function WorkspaceResults({
             <TableHead>Status</TableHead>
             <TableHead>Updated</TableHead>
             <TableHead>Size</TableHead>
-            <TableHead className="text-right">Quick action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -174,17 +172,20 @@ function WorkspaceRow({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <TableRow className="cursor-default">
+        <TableRow
+          className={
+            isFolder
+              ? "cursor-pointer transition-colors hover:bg-muted/20"
+              : "cursor-default"
+          }
+          onClick={isFolder ? onOpenFolder : undefined}
+        >
           <TableCell className="font-medium">
             {isFolder ? (
-              <button
-                className="flex items-center gap-3 text-left text-foreground"
-                onClick={onOpenFolder}
-                type="button"
-              >
+              <div className="flex items-center gap-3 text-foreground">
                 <FolderIcon className="text-muted-foreground" />
                 <span>{name}</span>
-              </button>
+              </div>
             ) : (
               <div className="flex items-center gap-3">
                 <FileTextIcon className="text-muted-foreground" />
@@ -200,19 +201,6 @@ function WorkspaceRow({
           </TableCell>
           <TableCell>{formatDate(updatedAt)}</TableCell>
           <TableCell>{size}</TableCell>
-          <TableCell className="text-right">
-            {isFolder ? (
-              <Button onClick={onOpenFolder} size="sm" variant="ghost">
-                <FolderOpenIcon data-icon="inline-start" />
-                Open
-              </Button>
-            ) : (
-              <Button onClick={onDownload} size="sm" variant="ghost">
-                <ArrowDownToLineIcon data-icon="inline-start" />
-                Download
-              </Button>
-            )}
-          </TableCell>
         </TableRow>
       </ContextMenuTrigger>
       <ContextMenuContent>
