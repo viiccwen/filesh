@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.domain.enums import PermissionLevel, ResourceType, ShareMode
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import PermissionLevel, ResourceType, ShareMode
 
 if TYPE_CHECKING:
     from app.models.user import User

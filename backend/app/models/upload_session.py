@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.domain.enums import UploadSessionStatus
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import UploadSessionStatus
 
 if TYPE_CHECKING:
     from app.models.file import File

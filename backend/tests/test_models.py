@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from app.models import File, Folder, ShareInvitation, ShareLink, UploadSession, User
-from app.models.base import Base
-from app.models.enums import (
+from app.domain.enums import (
     FileStatus,
     PermissionLevel,
     ResourceType,
     ShareMode,
     UploadSessionStatus,
 )
+from app.models import File, Folder, ShareInvitation, ShareLink, UploadSession, User
+from app.models.base import Base
 
 
 def test_model_exports_and_metadata_tables() -> None:
