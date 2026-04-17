@@ -64,7 +64,7 @@ def test_user_only_share_requires_authenticated_user(client) -> None:
     assert authorized_response.status_code == 200
 
 
-def test_email_invitation_share_requires_registered_invitee(client) -> None:
+def test_email_invitation_share_allows_pending_invitee_until_registration(client) -> None:
     headers = register_and_login(client, "owner-share@example.com", "owner-share-user")
     folder_response = client.post("/api/folders", headers=headers, json={"name": "invite-only"})
 
@@ -78,9 +78,16 @@ def test_email_invitation_share_requires_registered_invitee(client) -> None:
             "invitation_emails": ["missing@example.com"],
         },
     )
+    token = response.json()["share_url"].split("/s/")[1]
 
-    assert response.status_code == 400
-    assert "must be registered" in response.json()["detail"]
+    unauthorized_response = client.get(f"/s/{token}")
+    invited_headers = register_and_login(client, "missing@example.com", "missing-user")
+    authorized_response = client.get(f"/s/{token}", headers=invited_headers)
+
+    assert response.status_code == 201
+    assert response.json()["invitation_emails"] == ["missing@example.com"]
+    assert unauthorized_response.status_code == 403
+    assert authorized_response.status_code == 200
 
 
 def test_email_invitation_share_allows_only_invited_user(client) -> None:

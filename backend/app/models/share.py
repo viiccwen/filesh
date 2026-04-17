@@ -51,7 +51,10 @@ class ShareInvitation(UUIDPrimaryKeyMixin, Base):
         ForeignKey("share_links.id", ondelete="CASCADE"),
         index=True,
     )
-    invited_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    invited_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     invited_email: Mapped[str] = mapped_column(String(320))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

@@ -80,17 +80,20 @@ def validate_share_resource(
     return get_folder_for_owner(session, resource_id, owner.id)
 
 
-def resolve_invited_users(session: Session, emails: list[str]) -> list[User]:
+def resolve_invitations(session: Session, emails: list[str]) -> list[tuple[str, uuid.UUID | None]]:
     if not emails:
         return []
 
     normalized = sorted({email.lower() for email in emails})
     users = share_repository.get_active_users_by_emails(session, normalized)
-    matched_emails = {user.email.lower() for user in users}
-    missing = [email for email in normalized if email not in matched_emails]
-    if missing:
-        raise ValidationError(f"Invited users must be registered: {', '.join(missing)}")
-    return users
+    users_by_email = {user.email.lower(): user for user in users}
+    return [
+        (
+            email,
+            users_by_email[email].id if email in users_by_email else None,
+        )
+        for email in normalized
+    ]
 
 
 def assert_share_payload(payload: ShareUpsertRequest) -> None:
@@ -127,7 +130,7 @@ def create_share(
     if get_active_share_for_resource(session, resource_type, resource_id) is not None:
         raise ConflictError("Active share link already exists")
 
-    invited_users = resolve_invited_users(
+    invitations = resolve_invitations(
         session,
         [str(email) for email in payload.invitation_emails],
     )
@@ -145,12 +148,12 @@ def create_share(
     share_repository.add_share_link(session, share_link)
     session.flush()
 
-    for user in invited_users:
+    for invited_email, invited_user_id in invitations:
         session.add(
             ShareInvitation(
                 share_link_id=share_link.id,
-                invited_user_id=user.id,
-                invited_email=user.email,
+                invited_user_id=invited_user_id,
+                invited_email=invited_email,
                 created_at=datetime.now(UTC),
             )
         )
@@ -174,7 +177,7 @@ def update_share(
     if share_link is None:
         raise NotFoundError("Active share link not found")
 
-    invited_users = resolve_invited_users(
+    invitations = resolve_invitations(
         session,
         [str(email) for email in payload.invitation_emails],
     )
@@ -184,12 +187,12 @@ def update_share(
     share_link.invitations.clear()
     session.flush()
 
-    for user in invited_users:
+    for invited_email, invited_user_id in invitations:
         session.add(
             ShareInvitation(
                 share_link_id=share_link.id,
-                invited_user_id=user.id,
-                invited_email=user.email,
+                invited_user_id=invited_user_id,
+                invited_email=invited_email,
                 created_at=datetime.now(UTC),
             )
         )
