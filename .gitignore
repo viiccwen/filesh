@@ -18,6 +18,7 @@ coverage/
 
 backend/.venv/
 frontend/node_modules/
+frontend/.pnpm-store/
 
 grafana-data/
 postgres-data/
