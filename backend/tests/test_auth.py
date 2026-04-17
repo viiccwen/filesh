@@ -218,6 +218,96 @@ def test_update_me_rejects_duplicate_username(client) -> None:
     assert update_response.json()["detail"] == "Username taken"
 
 
+def test_change_password_updates_credentials(client) -> None:
+    client.post(
+        "/api/auth/register",
+        json={
+            "email": "password-edit@example.com",
+            "username": "password-edit",
+            "nickname": "Password Edit",
+            "password": "secret123",
+        },
+    )
+    login_response = client.post(
+        "/api/auth/login",
+        json={"identifier": "password-edit@example.com", "password": "secret123"},
+    )
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+
+    change_response = client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"current_password": "secret123", "new_password": "newsecret123"},
+    )
+    old_login_response = client.post(
+        "/api/auth/login",
+        json={"identifier": "password-edit@example.com", "password": "secret123"},
+    )
+    new_login_response = client.post(
+        "/api/auth/login",
+        json={"identifier": "password-edit@example.com", "password": "newsecret123"},
+    )
+
+    assert change_response.status_code == 200
+    assert change_response.json()["message"] == "Password updated"
+    assert old_login_response.status_code == 401
+    assert new_login_response.status_code == 200
+
+
+def test_change_password_rejects_incorrect_current_password(client) -> None:
+    client.post(
+        "/api/auth/register",
+        json={
+            "email": "wrong-current@example.com",
+            "username": "wrong-current",
+            "nickname": "Wrong Current",
+            "password": "secret123",
+        },
+    )
+    login_response = client.post(
+        "/api/auth/login",
+        json={"identifier": "wrong-current@example.com", "password": "secret123"},
+    )
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+
+    change_response = client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"current_password": "badpass123", "new_password": "newsecret123"},
+    )
+
+    assert change_response.status_code == 401
+    assert change_response.json()["detail"] == "Current password is incorrect"
+
+
+def test_change_password_rejects_same_password(client) -> None:
+    client.post(
+        "/api/auth/register",
+        json={
+            "email": "same-password@example.com",
+            "username": "same-password",
+            "nickname": "Same Password",
+            "password": "secret123",
+        },
+    )
+    login_response = client.post(
+        "/api/auth/login",
+        json={"identifier": "same-password@example.com", "password": "secret123"},
+    )
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+
+    change_response = client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"current_password": "secret123", "new_password": "secret123"},
+    )
+
+    assert change_response.status_code == 400
+    assert (
+        change_response.json()["detail"] == "New password must be different from current password"
+    )
+
+
 def test_login_rejects_inactive_user(client, session) -> None:
     client.post(
         "/api/auth/register",

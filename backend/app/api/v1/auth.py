@@ -11,6 +11,8 @@ from app.domain import AppError
 from app.models import User
 from app.schemas.auth import (
     AccessTokenResponse,
+    ChangePasswordRequest,
+    ChangePasswordResponse,
     DeleteAccountResponse,
     LoginRequest,
     LogoutResponse,
@@ -66,6 +68,18 @@ def refresh_access_token(
 def logout(response: Response, use_case: AuthUseCase = auth_use_case_dependency) -> LogoutResponse:
     use_case.clear_refresh_cookie(response)
     return use_case.logout()
+
+
+@router.post("/change-password", response_model=ChangePasswordResponse)
+def change_password(
+    payload: ChangePasswordRequest,
+    current_user: User = current_user_dependency,
+    use_case: AuthUseCase = auth_use_case_dependency,
+) -> ChangePasswordResponse:
+    try:
+        return use_case.change_password(current_user, payload)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.delete("/me", response_model=DeleteAccountResponse)

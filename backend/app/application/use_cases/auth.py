@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.application.shared.auth import (
     authenticate_user,
     build_auth_response,
+    change_user_password,
     delete_user_account,
     register_user,
 )
@@ -18,6 +19,8 @@ from app.models import User
 from app.repositories import users as user_repository
 from app.schemas.auth import (
     AccessTokenResponse,
+    ChangePasswordRequest,
+    ChangePasswordResponse,
     DeleteAccountResponse,
     LoginRequest,
     LogoutResponse,
@@ -55,6 +58,14 @@ class AuthUseCase:
 
     def logout(self) -> LogoutResponse:
         return LogoutResponse(message="Logged out")
+
+    def change_password(
+        self,
+        current_user: User,
+        payload: ChangePasswordRequest,
+    ) -> ChangePasswordResponse:
+        change_user_password(self.session, current_user, payload)
+        return ChangePasswordResponse(message="Password updated")
 
     def delete_account(self, current_user: User) -> DeleteAccountResponse:
         delete_user_account(self.session, current_user, self.event_publisher)

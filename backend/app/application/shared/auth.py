@@ -11,10 +11,15 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.domain import AuthenticationError, AuthorizationError, ConflictError
+from app.domain import AuthenticationError, AuthorizationError, ConflictError, ValidationError
 from app.models import User
 from app.repositories import users as user_repository
-from app.schemas.auth import AccessTokenResponse, LoginRequest, RegisterRequest
+from app.schemas.auth import (
+    AccessTokenResponse,
+    ChangePasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+)
 from app.schemas.user import UserRead
 
 
@@ -62,6 +67,18 @@ def build_auth_response(user: User) -> tuple[AccessTokenResponse, str]:
         AccessTokenResponse(access_token=access_token, user=UserRead.model_validate(user)),
         refresh_token,
     )
+
+
+def change_user_password(session: Session, user: User, payload: ChangePasswordRequest) -> User:
+    if not verify_password(payload.current_password, user.password_hash):
+        raise AuthenticationError("Current password is incorrect")
+    if payload.current_password == payload.new_password:
+        raise ValidationError("New password must be different from current password")
+
+    user.password_hash = hash_password(payload.new_password)
+    session.commit()
+    session.refresh(user)
+    return user
 
 
 def delete_user_account(session: Session, user: User, event_publisher: EventPublisher) -> None:
