@@ -7,16 +7,15 @@ import {
   useState,
 } from "react";
 import {
-  ArrowRightLeftIcon,
   ArrowDownToLineIcon,
-  ChevronRightIcon,
+  ArrowRightLeftIcon,
+  FileTextIcon,
   FolderIcon,
   FolderInputIcon,
   FolderOpenIcon,
   Link2Icon,
   Loader2Icon,
   LogOutIcon,
-  MoreHorizontalIcon,
   PencilIcon,
   SearchIcon,
   SparklesIcon,
@@ -47,12 +46,10 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -86,7 +83,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -110,8 +106,8 @@ import {
 } from "@/features/workspace/schemas";
 import {
   ApiError,
-  createFolderShare,
   createFolder,
+  createFolderShare,
   deleteFile,
   deleteFolder,
   downloadFile,
@@ -128,11 +124,6 @@ import {
   uploadFile,
 } from "@/lib/api";
 import { formatBytes, formatDate, getInitials } from "@/lib/format";
-
-type FolderNode = {
-  folder: Folder;
-  childFolderIds: string[];
-};
 
 type SortKey = "name" | "updated_at" | "size" | "type";
 
@@ -157,6 +148,41 @@ type EditDialogState =
   | { mode: "move"; resource: ActionResource }
   | null;
 
+type ToolbarProps = {
+  breadcrumbFolders: Folder[];
+  onOpenFolder: (folderId: string) => Promise<void>;
+  pageSize: number;
+  searchQuery: string;
+  setPageSize: (value: number) => void;
+  setSearchQuery: (value: string) => void;
+  setSortDirection: (value: "asc" | "desc") => void;
+  setSortKey: (value: SortKey) => void;
+  share: Share | null;
+  sortDirection: "asc" | "desc";
+  sortKey: SortKey;
+};
+
+type WorkspaceResultsProps = {
+  contents: FolderContents | null;
+  currentFolderId: string;
+  onDeleteResource: (resource: ActionResource) => void;
+  onDownloadFile: (fileId: string, filename: string) => Promise<void>;
+  onEditResource: (state: EditDialogState) => void;
+  onOpenFolder: (folderId: string) => Promise<void>;
+  resourceResults: ResourceSearchResponse | null;
+  searchQuery: string;
+  workspacePending: boolean;
+};
+
+type WorkspaceRowProps = {
+  item: ResourceSearchItem;
+  onDelete: () => void;
+  onDownload: () => void;
+  onMove: () => void;
+  onOpenFolder: () => void;
+  onRename: () => void;
+};
+
 const PAGE_SIZE_OPTIONS = ["8", "16", "24"];
 
 export function WorkspaceScreen() {
@@ -176,7 +202,6 @@ export function WorkspaceScreen() {
   const [workspacePending, setWorkspacePending] = useState(false);
   const [resourcePending, setResourcePending] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [sharePending, setSharePending] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [editDialogState, setEditDialogState] = useState<EditDialogState>(null);
@@ -191,10 +216,7 @@ export function WorkspaceScreen() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [pageSize, setPageSize] = useState(8);
   const [pageIndex, setPageIndex] = useState(1);
-  const [folderTree, setFolderTree] = useState<Record<string, FolderNode>>({});
-  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(
-    new Set(),
-  );
+  const [knownFolders, setKnownFolders] = useState<Record<string, Folder>>({});
 
   useEffect(() => {
     if (!accessToken) {
@@ -230,22 +252,8 @@ export function WorkspaceScreen() {
     sortKey,
   ]);
 
-  const folderItems = useMemo(
-    () =>
-      (resourceResults?.items ?? []).filter(
-        (item): item is Extract<ResourceSearchItem, { item_type: "FOLDER" }> =>
-          item.item_type === "FOLDER",
-      ),
-    [resourceResults],
-  );
-  const fileItems = useMemo(
-    () =>
-      (resourceResults?.items ?? []).filter(
-        (item): item is Extract<ResourceSearchItem, { item_type: "FILE" }> =>
-          item.item_type === "FILE",
-      ),
-    [resourceResults],
-  );
+  const workspaceItems = resourceResults?.items ?? [];
+  const currentFolderId = contents?.folder.id ?? "";
 
   const breadcrumbFolders = useMemo(() => {
     if (!contents) {
@@ -258,64 +266,51 @@ export function WorkspaceScreen() {
     while (currentFolder) {
       chain.unshift(currentFolder);
       currentFolder = currentFolder.parent_id
-        ? folderTree[currentFolder.parent_id]?.folder
+        ? knownFolders[currentFolder.parent_id]
         : undefined;
     }
 
     return chain;
-  }, [contents, folderTree]);
+  }, [contents, knownFolders]);
 
   const moveTargets = useMemo(() => {
+    const folders = Object.values(knownFolders).sort((left, right) =>
+      (left.path_cache ?? left.name).localeCompare(
+        right.path_cache ?? right.name,
+        undefined,
+        { sensitivity: "base" },
+      ),
+    );
+
     if (!editDialogState || editDialogState.mode === "create-folder") {
-      return Object.values(folderTree)
-        .map((node) => node.folder)
-        .sort((left, right) =>
-          (left.path_cache ?? left.name).localeCompare(
-            right.path_cache ?? right.name,
-            undefined,
-            { sensitivity: "base" },
-          ),
-        );
+      return folders;
     }
 
     const activeResource = editDialogState.resource;
     const currentFolderPath =
-      activeResource?.kind === "folder" ? activeResource.pathCache : null;
+      activeResource.kind === "folder" ? activeResource.pathCache : null;
 
-    return Object.values(folderTree)
-      .map((node) => node.folder)
-      .filter((folder) => {
-        if (!activeResource) {
-          return true;
-        }
+    return folders.filter((folder) => {
+      if (activeResource.kind === "file") {
+        return folder.id !== activeResource.parentId;
+      }
 
-        if (activeResource.kind === "file") {
-          return folder.id !== activeResource.parentId;
-        }
+      if (folder.id === activeResource.id) {
+        return false;
+      }
 
-        if (folder.id === activeResource.id) {
-          return false;
-        }
+      if (
+        currentFolderPath &&
+        folder.path_cache &&
+        (folder.path_cache === currentFolderPath ||
+          folder.path_cache.startsWith(`${currentFolderPath}/`))
+      ) {
+        return false;
+      }
 
-        if (
-          currentFolderPath &&
-          folder.path_cache &&
-          (folder.path_cache === currentFolderPath ||
-            folder.path_cache.startsWith(`${currentFolderPath}/`))
-        ) {
-          return false;
-        }
-
-        return true;
-      })
-      .sort((left, right) =>
-        (left.path_cache ?? left.name).localeCompare(
-          right.path_cache ?? right.name,
-          undefined,
-          { sensitivity: "base" },
-        ),
-      );
-  }, [editDialogState, folderTree]);
+      return true;
+    });
+  }, [editDialogState, knownFolders]);
 
   useEffect(() => {
     if (!editDialogState) {
@@ -331,20 +326,16 @@ export function WorkspaceScreen() {
     }
 
     setResourceName(editDialogState.resource.name);
-
-    if (editDialogState.mode === "move") {
-      setMoveTargetId(moveTargets[0]?.id ?? "");
-      return;
-    }
-
-    setMoveTargetId("");
+    setMoveTargetId(
+      editDialogState.mode === "move" ? (moveTargets[0]?.id ?? "") : "",
+    );
   }, [editDialogState, moveTargets]);
 
   if (!accessToken || !user) {
     return null;
   }
 
-  const currentFolderId = contents?.folder.id ?? "";
+  const authToken = accessToken;
 
   async function loadWorkspace(token: string, folderId?: string) {
     setWorkspacePending(true);
@@ -362,11 +353,8 @@ export function WorkspaceScreen() {
       setRootFolderId(nextRootId);
       setContents(nextContents);
       setShare(nextShare);
+      registerFolders(nextContents.folder, nextContents.folders);
       await loadResourceResults(token, targetFolderId, { force: true });
-      registerFolderTreeNode(nextContents.folder, nextContents.folders);
-      setExpandedFolderIds((current) =>
-        new Set(current).add(nextContents.folder.id),
-      );
     } catch (error) {
       setWorkspaceError(getErrorMessage(error));
     } finally {
@@ -424,89 +412,42 @@ export function WorkspaceScreen() {
     }
   }
 
-  function registerFolderTreeNode(folder: Folder, childFolders: Folder[]) {
-    setFolderTree((current) => {
-      const nextEntries = { ...current };
-      nextEntries[folder.id] = {
-        childFolderIds: childFolders.map((item) => item.id),
-        folder,
-      };
+  function registerFolders(folder: Folder, childFolders: Folder[]) {
+    setKnownFolders((current) => {
+      const next = { ...current, [folder.id]: folder };
 
       for (const childFolder of childFolders) {
-        const existing = current[childFolder.id];
-        nextEntries[childFolder.id] = {
-          childFolderIds: existing?.childFolderIds ?? [],
-          folder: childFolder,
-        };
+        next[childFolder.id] = childFolder;
       }
 
-      return nextEntries;
+      return next;
     });
   }
 
   async function openFolder(folderId: string) {
-    const token = accessToken;
-    if (!token) {
-      return;
-    }
-
-    await loadWorkspace(token, folderId);
-  }
-
-  async function toggleFolderExpansion(folderId: string) {
-    const token = accessToken;
-    if (!token) {
-      return;
-    }
-
-    setExpandedFolderIds((current) => {
-      const next = new Set(current);
-      if (next.has(folderId)) {
-        next.delete(folderId);
-      } else {
-        next.add(folderId);
-      }
-      return next;
-    });
-
-    if (!folderTree[folderId]?.childFolderIds.length) {
-      try {
-        const nextContents = await getFolderContents(folderId, token);
-        registerFolderTreeNode(nextContents.folder, nextContents.folders);
-      } catch (error) {
-        toast.error(getErrorMessage(error));
-      }
-    }
+    await loadWorkspace(authToken, folderId);
   }
 
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    const token = accessToken;
-    if (!file || !contents || !token) {
+    if (!file || !contents) {
       return;
     }
 
-    setUploading(true);
     try {
-      await uploadFile(token, contents.folder.id, file);
-      await loadWorkspace(token, contents.folder.id);
+      await uploadFile(authToken, contents.folder.id, file);
+      await loadWorkspace(authToken, contents.folder.id);
       toast.success(`${file.name} uploaded`);
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
-      setUploading(false);
       event.target.value = "";
     }
   }
 
   async function handleDownload(fileId: string, filename: string) {
-    const token = accessToken;
-    if (!token) {
-      return;
-    }
-
     try {
-      const blob = await downloadFile(token, fileId);
+      const blob = await downloadFile(authToken, fileId);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -519,8 +460,7 @@ export function WorkspaceScreen() {
   }
 
   async function handleSaveShare(values: ShareFormValues) {
-    const token = accessToken;
-    if (!contents || !token) {
+    if (!contents) {
       return;
     }
 
@@ -529,8 +469,16 @@ export function WorkspaceScreen() {
 
     try {
       const nextShare = share
-        ? await updateFolderShare(token, contents.folder.id, normalizedValues)
-        : await createFolderShare(token, contents.folder.id, normalizedValues);
+        ? await updateFolderShare(
+            authToken,
+            contents.folder.id,
+            normalizedValues,
+          )
+        : await createFolderShare(
+            authToken,
+            contents.folder.id,
+            normalizedValues,
+          );
 
       setShare(nextShare);
       setShareSheetOpen(false);
@@ -556,14 +504,14 @@ export function WorkspaceScreen() {
   }
 
   async function handleRevokeShare() {
-    const token = accessToken;
-    if (!contents || !share || !token) {
+    if (!contents || !share) {
       return;
     }
 
     setSharePending(true);
+
     try {
-      await revokeFolderShare(token, contents.folder.id);
+      await revokeFolderShare(authToken, contents.folder.id);
       setShare(null);
       setShareSheetOpen(false);
       toast.success("Share link revoked");
@@ -578,31 +526,8 @@ export function WorkspaceScreen() {
     uploadInputRef.current?.click();
   }
 
-  function toFolderActionResource(folder: Folder): ActionResource {
-    return {
-      kind: "folder",
-      id: folder.id,
-      name: folder.name,
-      parentId: folder.parent_id,
-      pathCache: folder.path_cache,
-    };
-  }
-
-  function toFileActionResource(
-    file: FileSummary,
-    parentId: string,
-  ): ActionResource {
-    return {
-      kind: "file",
-      id: file.id,
-      name: file.stored_filename,
-      parentId,
-    };
-  }
-
   async function handleSaveResourceAction() {
-    const token = accessToken;
-    if (!editDialogState || !contents || !token) {
+    if (!editDialogState || !contents) {
       return;
     }
 
@@ -615,7 +540,7 @@ export function WorkspaceScreen() {
           return;
         }
 
-        await createFolder(token, {
+        await createFolder(authToken, {
           name: resourceName.trim(),
           parent_id: editDialogState.parentId,
         });
@@ -627,12 +552,12 @@ export function WorkspaceScreen() {
         }
 
         if (editDialogState.resource.kind === "folder") {
-          await renameFolder(token, editDialogState.resource.id, {
+          await renameFolder(authToken, editDialogState.resource.id, {
             name: resourceName.trim(),
           });
           toast.success("Folder renamed");
         } else {
-          await renameFile(token, editDialogState.resource.id, {
+          await renameFile(authToken, editDialogState.resource.id, {
             filename: resourceName.trim(),
           });
           toast.success("File renamed");
@@ -644,12 +569,12 @@ export function WorkspaceScreen() {
         }
 
         if (editDialogState.resource.kind === "folder") {
-          await moveFolder(token, editDialogState.resource.id, {
+          await moveFolder(authToken, editDialogState.resource.id, {
             target_parent_id: moveTargetId,
           });
           toast.success("Folder moved");
         } else {
-          await moveFile(token, editDialogState.resource.id, {
+          await moveFile(authToken, editDialogState.resource.id, {
             target_folder_id: moveTargetId,
           });
           toast.success("File moved");
@@ -657,7 +582,7 @@ export function WorkspaceScreen() {
       }
 
       setEditDialogState(null);
-      await loadWorkspace(token, contents.folder.id);
+      await loadWorkspace(authToken, contents.folder.id);
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -666,9 +591,8 @@ export function WorkspaceScreen() {
   }
 
   async function handleDeleteResource() {
-    const token = accessToken;
     const resource = deleteDialogResource;
-    if (!resource || !token) {
+    if (!resource) {
       return;
     }
 
@@ -676,10 +600,10 @@ export function WorkspaceScreen() {
 
     try {
       if (resource.kind === "folder") {
-        await deleteFolder(token, resource.id);
+        await deleteFolder(authToken, resource.id);
         toast.success("Folder deleted");
       } else {
-        await deleteFile(token, resource.id);
+        await deleteFile(authToken, resource.id);
         toast.success("File deleted");
       }
 
@@ -690,9 +614,9 @@ export function WorkspaceScreen() {
         contents?.folder.id === resource.id &&
         resource.parentId
       ) {
-        await loadWorkspace(token, resource.parentId);
+        await loadWorkspace(authToken, resource.parentId);
       } else {
-        await loadWorkspace(token, contents?.folder.id);
+        await loadWorkspace(authToken, contents?.folder.id);
       }
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -703,155 +627,24 @@ export function WorkspaceScreen() {
 
   return (
     <>
-      <Dialog
-        onOpenChange={(open) => {
-          if (!open && !actionPending) {
-            setEditDialogState(null);
-          }
-        }}
-        open={editDialogState !== null}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editDialogState?.mode === "create-folder"
-                ? "Create folder"
-                : editDialogState?.mode === "rename"
-                  ? `Rename ${editDialogState.resource.kind}`
-                  : `Move ${editDialogState?.resource.kind ?? "resource"}`}
-            </DialogTitle>
-            <DialogDescription>
-              {editDialogState?.mode === "create-folder"
-                ? "Create a new folder in the current location."
-                : editDialogState?.mode === "rename"
-                  ? "Update the visible name used in the workspace."
-                  : "Choose a destination from the folders currently loaded in the tree."}
-            </DialogDescription>
-          </DialogHeader>
+      <WorkspaceActionDialog
+        actionPending={actionPending}
+        editDialogState={editDialogState}
+        moveTargetId={moveTargetId}
+        moveTargets={moveTargets}
+        onOpenChange={setEditDialogState}
+        onSave={() => void handleSaveResourceAction()}
+        resourceName={resourceName}
+        setMoveTargetId={setMoveTargetId}
+        setResourceName={setResourceName}
+      />
 
-          {editDialogState?.mode === "create-folder" ||
-          editDialogState?.mode === "rename" ? (
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="resource-name">Name</FieldLabel>
-                <FieldContent>
-                  <Input
-                    id="resource-name"
-                    onChange={(event) => setResourceName(event.target.value)}
-                    placeholder="Enter a new name"
-                    value={resourceName}
-                  />
-                </FieldContent>
-              </Field>
-            </FieldGroup>
-          ) : (
-            <FieldGroup>
-              <Field>
-                <FieldLabel>Destination folder</FieldLabel>
-                <FieldContent>
-                  <Select onValueChange={setMoveTargetId} value={moveTargetId}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select a destination" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {moveTargets.map((folder) => (
-                          <SelectItem key={folder.id} value={folder.id}>
-                            {folder.path_cache || folder.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FieldDescription>
-                    Expand more branches in the folder tree to reveal additional
-                    destinations.
-                  </FieldDescription>
-                </FieldContent>
-              </Field>
-            </FieldGroup>
-          )}
-
-          <DialogFooter>
-            <Button
-              disabled={actionPending}
-              onClick={() => setEditDialogState(null)}
-              variant="outline"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={
-                actionPending ||
-                (editDialogState?.mode === "move"
-                  ? !moveTargetId
-                  : !resourceName.trim())
-              }
-              onClick={() => void handleSaveResourceAction()}
-            >
-              {actionPending ? (
-                <Loader2Icon
-                  className="animate-spin"
-                  data-icon="inline-start"
-                />
-              ) : editDialogState?.mode === "create-folder" ||
-                editDialogState?.mode === "rename" ? (
-                <PencilIcon data-icon="inline-start" />
-              ) : (
-                <ArrowRightLeftIcon data-icon="inline-start" />
-              )}
-              {editDialogState?.mode === "create-folder"
-                ? "Create folder"
-                : editDialogState?.mode === "rename"
-                  ? "Save changes"
-                  : "Move"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        onOpenChange={(open) => {
-          if (!open && !actionPending) {
-            setDeleteDialogResource(null);
-          }
-        }}
-        open={deleteDialogResource !== null}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete resource</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteDialogResource
-                ? `Delete ${deleteDialogResource.name}? This action cannot be undone.`
-                : "This action cannot be undone."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={actionPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={actionPending}
-              onClick={(event) => {
-                event.preventDefault();
-                void handleDeleteResource();
-              }}
-            >
-              {actionPending ? (
-                <Loader2Icon
-                  className="animate-spin"
-                  data-icon="inline-start"
-                />
-              ) : (
-                <TrashIcon data-icon="inline-start" />
-              )}
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteResourceDialog
+        actionPending={actionPending}
+        deleteDialogResource={deleteDialogResource}
+        onConfirm={() => void handleDeleteResource()}
+        onOpenChange={setDeleteDialogResource}
+      />
 
       <ShareManagementSheet
         onCopyLink={handleCopyShareLink}
@@ -881,9 +674,6 @@ export function WorkspaceScreen() {
                 <p className="text-sm font-semibold tracking-[0.22em] text-foreground uppercase">
                   filesh
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  Workspace-first file sharing.
-                </p>
               </div>
             </div>
 
@@ -899,733 +689,647 @@ export function WorkspaceScreen() {
                   @{user.username}
                 </p>
               </div>
-              <Button onClick={() => void logout()} variant="outline">
+              <Button
+                className="rounded-full"
+                onClick={() => void logout()}
+                size="icon"
+                variant="outline"
+              >
                 <LogOutIcon data-icon="inline-start" />
-                Log out
+                <span className="sr-only">Log out</span>
               </Button>
             </div>
           </div>
         </header>
 
-        <div className="grid gap-8 xl:grid-cols-[280px_minmax(0,1fr)]">
-          <aside className="rounded-[2rem] border border-border/70 bg-background/60 p-4 shadow-lg shadow-black/5 backdrop-blur">
-            <div className="mb-4">
-              <h2 className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Navigation
-              </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Right click any folder to open, move, rename, or delete.
-              </p>
-            </div>
-
-            {rootFolderId ? (
-              <FolderTree
-                activeFolderId={contents?.folder.id ?? null}
-                expandedFolderIds={expandedFolderIds}
-                nodes={folderTree}
-                onDeleteFolder={(folder) =>
-                  setDeleteDialogResource(toFolderActionResource(folder))
-                }
+        <ContextMenu>
+          <ContextMenuTrigger>
+            <main className="flex min-w-0 flex-col gap-6">
+              <WorkspaceToolbar
+                breadcrumbFolders={breadcrumbFolders}
                 onOpenFolder={openFolder}
-                onMoveFolder={(folder) =>
-                  setEditDialogState({
-                    mode: "move",
-                    resource: toFolderActionResource(folder),
-                  })
-                }
-                onRenameFolder={(folder) =>
-                  setEditDialogState({
-                    mode: "rename",
-                    resource: toFolderActionResource(folder),
-                  })
-                }
-                onToggleFolder={toggleFolderExpansion}
-                rootFolderId={rootFolderId}
+                pageSize={pageSize}
+                searchQuery={searchQuery}
+                setPageSize={setPageSize}
+                setSearchQuery={setSearchQuery}
+                setSortDirection={setSortDirection}
+                setSortKey={setSortKey}
+                share={share}
+                sortDirection={sortDirection}
+                sortKey={sortKey}
               />
-            ) : (
-              <div className="flex flex-col gap-2">
-                <Skeleton className="h-8 rounded-xl" />
-                <Skeleton className="h-8 rounded-xl" />
+
+              {workspaceError ? (
+                <Alert variant="destructive">
+                  <AlertTitle>Workspace load failed</AlertTitle>
+                  <AlertDescription>{workspaceError}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              <WorkspaceResults
+                contents={contents}
+                currentFolderId={currentFolderId}
+                onDeleteResource={setDeleteDialogResource}
+                onDownloadFile={handleDownload}
+                onEditResource={setEditDialogState}
+                onOpenFolder={openFolder}
+                resourceResults={resourceResults}
+                searchQuery={searchQuery}
+                workspacePending={workspacePending}
+              />
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Showing{" "}
+                  {resourceResults?.pagination.total_items
+                    ? (pageIndex - 1) * pageSize + 1
+                    : 0}{" "}
+                  to{" "}
+                  {Math.min(
+                    pageIndex * pageSize,
+                    resourceResults?.pagination.total_items ?? 0,
+                  )}{" "}
+                  of {resourceResults?.pagination.total_items ?? 0} items
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    disabled={pageIndex === 1 || resourcePending}
+                    onClick={() =>
+                      setPageIndex((current) => Math.max(1, current - 1))
+                    }
+                    variant="outline"
+                  >
+                    Previous
+                  </Button>
+                  <Badge variant="outline">
+                    Page {pageIndex} of{" "}
+                    {resourceResults?.pagination.total_pages ?? 1}
+                  </Badge>
+                  <Button
+                    disabled={
+                      resourcePending ||
+                      pageIndex >=
+                        (resourceResults?.pagination.total_pages ?? 1)
+                    }
+                    onClick={() =>
+                      setPageIndex((current) =>
+                        Math.min(
+                          resourceResults?.pagination.total_pages ?? 1,
+                          current + 1,
+                        ),
+                      )
+                    }
+                    variant="outline"
+                  >
+                    Next
+                  </Button>
+                </div>
               </div>
-            )}
-          </aside>
+            </main>
+          </ContextMenuTrigger>
 
-          <ContextMenu>
-            <ContextMenuTrigger>
-              <main className="flex min-w-0 flex-col gap-6">
-                <div className="flex flex-col gap-5">
-                  <div className="flex min-w-0 flex-col gap-3">
-                    <Breadcrumb>
-                      <BreadcrumbList>
-                        {breadcrumbFolders.length > 0 ? (
-                          breadcrumbFolders.map((folder, index) => {
-                            const isLast =
-                              index === breadcrumbFolders.length - 1;
-
-                            return (
-                              <Fragment key={folder.id}>
-                                <BreadcrumbItem>
-                                  {isLast ? (
-                                    <BreadcrumbPage>
-                                      {folder.name}
-                                    </BreadcrumbPage>
-                                  ) : (
-                                    <BreadcrumbLink
-                                      className="cursor-pointer"
-                                      onClick={() => void openFolder(folder.id)}
-                                    >
-                                      {folder.name}
-                                    </BreadcrumbLink>
-                                  )}
-                                </BreadcrumbItem>
-                                {!isLast ? <BreadcrumbSeparator /> : null}
-                              </Fragment>
-                            );
-                          })
-                        ) : (
-                          <BreadcrumbItem>
-                            <BreadcrumbPage>Workspace</BreadcrumbPage>
-                          </BreadcrumbItem>
-                        )}
-                      </BreadcrumbList>
-                    </Breadcrumb>
-
-                    <div className="flex flex-wrap items-end justify-between gap-4">
-                      <div>
-                        <h1 className="text-4xl tracking-[-0.05em] text-foreground sm:text-5xl">
-                          File management
-                        </h1>
-                        <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                          Browse the current folder, search quickly, and use
-                          right click for every workspace action.
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {share ? (
-                          <Badge variant="outline">
-                            {share.permission_level}
-                          </Badge>
-                        ) : null}
-                        <Badge variant={share ? "default" : "secondary"}>
-                          {share ? "Active share" : "No share"}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 lg:grid-cols-[1fr_160px_150px_120px]">
-                    <Field>
-                      <FieldLabel htmlFor="workspace-search">Search</FieldLabel>
-                      <FieldContent>
-                        <div className="relative">
-                          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                          <Input
-                            className="pl-9"
-                            id="workspace-search"
-                            onChange={(event) =>
-                              setSearchQuery(event.target.value)
-                            }
-                            placeholder="Search by folder or file name"
-                            value={searchQuery}
-                          />
-                        </div>
-                      </FieldContent>
-                    </Field>
-
-                    <Field>
-                      <FieldLabel>Sort by</FieldLabel>
-                      <FieldContent>
-                        <Select
-                          onValueChange={(value) =>
-                            setSortKey(value as SortKey)
-                          }
-                          value={sortKey}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Sort field" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              <SelectItem value="name">Name</SelectItem>
-                              <SelectItem value="updated_at">
-                                Updated
-                              </SelectItem>
-                              <SelectItem value="size">Size</SelectItem>
-                              <SelectItem value="type">Type</SelectItem>
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </FieldContent>
-                    </Field>
-
-                    <Field>
-                      <FieldLabel>Direction</FieldLabel>
-                      <FieldContent>
-                        <Select
-                          onValueChange={(value) =>
-                            setSortDirection(value as "asc" | "desc")
-                          }
-                          value={sortDirection}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Direction" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              <SelectItem value="asc">Ascending</SelectItem>
-                              <SelectItem value="desc">Descending</SelectItem>
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </FieldContent>
-                    </Field>
-
-                    <Field>
-                      <FieldLabel>Page size</FieldLabel>
-                      <FieldContent>
-                        <Select
-                          onValueChange={(value) => setPageSize(Number(value))}
-                          value={String(pageSize)}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Size" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {PAGE_SIZE_OPTIONS.map((size) => (
-                                <SelectItem key={size} value={size}>
-                                  {size}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </FieldContent>
-                    </Field>
-                  </div>
-                </div>
-
-                {workspaceError ? (
-                  <Alert variant="destructive">
-                    <AlertTitle>Workspace load failed</AlertTitle>
-                    <AlertDescription>{workspaceError}</AlertDescription>
-                  </Alert>
-                ) : null}
-
-                <div className="flex flex-col gap-6">
-                  {workspacePending && !contents ? (
-                    <div className="grid gap-3">
-                      <Skeleton className="h-28 rounded-2xl" />
-                      <Skeleton className="h-16 rounded-2xl" />
-                      <Skeleton className="h-16 rounded-2xl" />
-                    </div>
-                  ) : (resourceResults?.pagination.total_items ?? 0) === 0 ? (
-                    <Empty className="border bg-muted/20 py-16">
-                      <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                          {searchQuery ? <SearchIcon /> : <FolderOpenIcon />}
-                        </EmptyMedia>
-                        <EmptyTitle>
-                          {searchQuery
-                            ? "No items match this search"
-                            : "This folder is empty"}
-                        </EmptyTitle>
-                        <EmptyDescription>
-                          {searchQuery
-                            ? "Try a different query, sort order, or page size."
-                            : "Right click anywhere in the workspace to upload, create a folder, or manage sharing."}
-                        </EmptyDescription>
-                      </EmptyHeader>
-                    </Empty>
-                  ) : (
-                    <>
-                      <section className="flex flex-col gap-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <h3 className="text-sm font-medium text-foreground">
-                              Folders
-                            </h3>
-                            <p className="text-sm text-muted-foreground">
-                              Double down on navigation here. Right click for
-                              folder actions.
-                            </p>
-                          </div>
-                          <Badge variant="outline">
-                            {folderItems.length} on this page
-                          </Badge>
-                        </div>
-
-                        {folderItems.length > 0 ? (
-                          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                            {folderItems.map((item) => (
-                              <FolderCard
-                                active={contents?.folder.id === item.folder.id}
-                                folder={item.folder}
-                                onDelete={() =>
-                                  setDeleteDialogResource(
-                                    toFolderActionResource(item.folder),
-                                  )
-                                }
-                                onMove={() =>
-                                  setEditDialogState({
-                                    mode: "move",
-                                    resource: toFolderActionResource(
-                                      item.folder,
-                                    ),
-                                  })
-                                }
-                                onOpen={() => void openFolder(item.folder.id)}
-                                onRename={() =>
-                                  setEditDialogState({
-                                    mode: "rename",
-                                    resource: toFolderActionResource(
-                                      item.folder,
-                                    ),
-                                  })
-                                }
-                                onToggleInTree={() =>
-                                  void toggleFolderExpansion(item.folder.id)
-                                }
-                              />
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="rounded-[1.5rem] border border-dashed p-6 text-sm text-muted-foreground">
-                            No folders are visible on this page.
-                          </div>
-                        )}
-                      </section>
-
-                      <Separator />
-
-                      <section className="flex flex-col gap-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <h3 className="text-sm font-medium text-foreground">
-                              Files
-                            </h3>
-                            <p className="text-sm text-muted-foreground">
-                              Keep the table focused on content. Downloads and
-                              item actions live on right click.
-                            </p>
-                          </div>
-                          <Badge variant="outline">
-                            {fileItems.length} on this page
-                          </Badge>
-                        </div>
-
-                        {fileItems.length > 0 ? (
-                          <div className="overflow-hidden rounded-[1.5rem] border">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Name</TableHead>
-                                  <TableHead>Status</TableHead>
-                                  <TableHead>Updated</TableHead>
-                                  <TableHead>Size</TableHead>
-                                  <TableHead className="text-right">
-                                    Quick action
-                                  </TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {fileItems.map((item) => (
-                                  <FileRow
-                                    file={item.file}
-                                    onDelete={() =>
-                                      setDeleteDialogResource(
-                                        toFileActionResource(
-                                          item.file,
-                                          currentFolderId,
-                                        ),
-                                      )
-                                    }
-                                    onDownload={() =>
-                                      void handleDownload(
-                                        item.file.id,
-                                        item.file.stored_filename,
-                                      )
-                                    }
-                                    onMove={() =>
-                                      setEditDialogState({
-                                        mode: "move",
-                                        resource: toFileActionResource(
-                                          item.file,
-                                          currentFolderId,
-                                        ),
-                                      })
-                                    }
-                                    onRename={() =>
-                                      setEditDialogState({
-                                        mode: "rename",
-                                        resource: toFileActionResource(
-                                          item.file,
-                                          currentFolderId,
-                                        ),
-                                      })
-                                    }
-                                  />
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        ) : (
-                          <div className="rounded-[1.5rem] border border-dashed p-6 text-sm text-muted-foreground">
-                            No files are visible on this page.
-                          </div>
-                        )}
-                      </section>
-                    </>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-muted-foreground">
-                    Showing{" "}
-                    {resourceResults?.pagination.total_items
-                      ? (pageIndex - 1) * pageSize + 1
-                      : 0}{" "}
-                    to{" "}
-                    {Math.min(
-                      pageIndex * pageSize,
-                      resourceResults?.pagination.total_items ?? 0,
-                    )}{" "}
-                    of {resourceResults?.pagination.total_items ?? 0} items
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      disabled={pageIndex === 1 || resourcePending}
-                      onClick={() =>
-                        setPageIndex((current) => Math.max(1, current - 1))
-                      }
-                      variant="outline"
-                    >
-                      Previous
-                    </Button>
-                    <Badge variant="outline">
-                      Page {pageIndex} of{" "}
-                      {resourceResults?.pagination.total_pages ?? 1}
-                    </Badge>
-                    <Button
-                      disabled={
-                        resourcePending ||
-                        pageIndex >=
-                          (resourceResults?.pagination.total_pages ?? 1)
-                      }
-                      onClick={() =>
-                        setPageIndex((current) =>
-                          Math.min(
-                            resourceResults?.pagination.total_pages ?? 1,
-                            current + 1,
-                          ),
-                        )
-                      }
-                      variant="outline"
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
-              </main>
-            </ContextMenuTrigger>
-
-            <ContextMenuContent>
-              <ContextMenuItem
-                onClick={() =>
-                  setEditDialogState({
-                    mode: "create-folder",
-                    parentId: currentFolderId,
-                  })
-                }
-              >
-                <FolderInputIcon />
-                Create folder
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => void setShareSheetOpen(true)}>
-                <Link2Icon />
-                Manage current folder share
-              </ContextMenuItem>
-              <ContextMenuItem onClick={openNativeFilePicker}>
-                <UploadIcon />
-                Upload a file
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-        </div>
+          <ContextMenuContent>
+            <ContextMenuItem
+              onClick={() =>
+                setEditDialogState({
+                  mode: "create-folder",
+                  parentId: currentFolderId,
+                })
+              }
+            >
+              <FolderInputIcon />
+              Create folder
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => setShareSheetOpen(true)}>
+              <Link2Icon />
+              Manage current folder share
+            </ContextMenuItem>
+            <ContextMenuItem onClick={openNativeFilePicker}>
+              <UploadIcon />
+              Upload a file
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
     </>
   );
 }
 
-function FolderTree({
-  activeFolderId,
-  expandedFolderIds,
-  nodes,
-  onDeleteFolder,
-  onOpenFolder,
-  onMoveFolder,
-  onRenameFolder,
-  onToggleFolder,
-  rootFolderId,
+function WorkspaceActionDialog({
+  actionPending,
+  editDialogState,
+  moveTargetId,
+  moveTargets,
+  onOpenChange,
+  onSave,
+  resourceName,
+  setMoveTargetId,
+  setResourceName,
 }: {
-  activeFolderId: string | null;
-  expandedFolderIds: Set<string>;
-  nodes: Record<string, FolderNode>;
-  onDeleteFolder: (folder: Folder) => void;
-  onOpenFolder: (folderId: string) => Promise<void>;
-  onMoveFolder: (folder: Folder) => void;
-  onRenameFolder: (folder: Folder) => void;
-  onToggleFolder: (folderId: string) => Promise<void>;
-  rootFolderId: string;
+  actionPending: boolean;
+  editDialogState: EditDialogState;
+  moveTargetId: string;
+  moveTargets: Folder[];
+  onOpenChange: (state: EditDialogState) => void;
+  onSave: () => void;
+  resourceName: string;
+  setMoveTargetId: (value: string) => void;
+  setResourceName: (value: string) => void;
 }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <FolderTreeNode
-        activeFolderId={activeFolderId}
-        depth={0}
-        expandedFolderIds={expandedFolderIds}
-        folderId={rootFolderId}
-        nodes={nodes}
-        onDeleteFolder={onDeleteFolder}
-        onOpenFolder={onOpenFolder}
-        onMoveFolder={onMoveFolder}
-        onRenameFolder={onRenameFolder}
-        onToggleFolder={onToggleFolder}
-      />
-    </div>
-  );
-}
-
-function FolderTreeNode({
-  activeFolderId,
-  depth,
-  expandedFolderIds,
-  folderId,
-  nodes,
-  onDeleteFolder,
-  onOpenFolder,
-  onMoveFolder,
-  onRenameFolder,
-  onToggleFolder,
-}: {
-  activeFolderId: string | null;
-  depth: number;
-  expandedFolderIds: Set<string>;
-  folderId: string;
-  nodes: Record<string, FolderNode>;
-  onDeleteFolder: (folder: Folder) => void;
-  onOpenFolder: (folderId: string) => Promise<void>;
-  onMoveFolder: (folder: Folder) => void;
-  onRenameFolder: (folder: Folder) => void;
-  onToggleFolder: (folderId: string) => Promise<void>;
-}) {
-  const node = nodes[folderId];
-  if (!node) {
-    return null;
-  }
-
-  const isExpanded = expandedFolderIds.has(folderId);
+  const isRename = editDialogState?.mode === "rename";
+  const isCreateFolder = editDialogState?.mode === "create-folder";
+  const isMove = editDialogState?.mode === "move";
 
   return (
-    <div className="flex flex-col gap-1">
-      <ContextMenu>
-        <ContextMenuTrigger>
-          <div
-            className="flex items-center gap-1 rounded-xl px-2 py-1.5"
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
+    <Dialog
+      onOpenChange={(open) => {
+        if (!open && !actionPending) {
+          onOpenChange(null);
+        }
+      }}
+      open={editDialogState !== null}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {isCreateFolder
+              ? "Create folder"
+              : isRename
+                ? `Rename ${editDialogState?.resource.kind ?? "resource"}`
+                : `Move ${editDialogState?.resource.kind ?? "resource"}`}
+          </DialogTitle>
+          <DialogDescription>
+            {isCreateFolder
+              ? "Create a new folder in the current location."
+              : isRename
+                ? "Update the visible name used in the workspace."
+                : "Choose a destination from the folders currently known to the workspace."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {isCreateFolder || isRename ? (
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="resource-name">Name</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="resource-name"
+                  onChange={(event) => setResourceName(event.target.value)}
+                  placeholder={
+                    isCreateFolder ? "Enter a folder name" : "Enter a new name"
+                  }
+                  value={resourceName}
+                />
+              </FieldContent>
+            </Field>
+          </FieldGroup>
+        ) : (
+          <FieldGroup>
+            <Field>
+              <FieldLabel>Destination folder</FieldLabel>
+              <FieldContent>
+                <Select onValueChange={setMoveTargetId} value={moveTargetId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a destination" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {moveTargets.map((folder) => (
+                        <SelectItem key={folder.id} value={folder.id}>
+                          {folder.path_cache || folder.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  Open folders as you work to expand the list of available
+                  destinations.
+                </FieldDescription>
+              </FieldContent>
+            </Field>
+          </FieldGroup>
+        )}
+
+        <DialogFooter>
+          <Button
+            disabled={actionPending}
+            onClick={() => onOpenChange(null)}
+            variant="outline"
           >
-            <Button
-              className="shrink-0"
-              onClick={() => void onToggleFolder(folderId)}
-              size="icon-xs"
-              variant="ghost"
-            >
-              <ChevronRightIcon
-                className={
-                  isExpanded
-                    ? "rotate-90 transition-transform"
-                    : "transition-transform"
-                }
-              />
-            </Button>
-            <Button
-              className="flex-1 justify-start truncate"
-              onClick={() => void onOpenFolder(folderId)}
-              variant={activeFolderId === folderId ? "secondary" : "ghost"}
-            >
-              <FolderIcon data-icon="inline-start" />
-              {node.folder.name}
-            </Button>
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onClick={() => void onOpenFolder(folderId)}>
-            <FolderOpenIcon />
-            Open folder
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => void onToggleFolder(folderId)}>
-            <ChevronRightIcon />
-            Toggle branch
-          </ContextMenuItem>
-          {node.folder.parent_id ? (
-            <>
-              <ContextMenuSeparator />
-              <ContextMenuItem onClick={() => onRenameFolder(node.folder)}>
-                <PencilIcon />
-                Rename
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => onMoveFolder(node.folder)}>
-                <FolderInputIcon />
-                Move
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => onDeleteFolder(node.folder)}>
-                <TrashIcon />
-                Delete
-              </ContextMenuItem>
-            </>
-          ) : null}
-        </ContextMenuContent>
-      </ContextMenu>
-
-      {isExpanded && node.childFolderIds.length > 0 ? (
-        <div className="flex flex-col gap-1">
-          {node.childFolderIds.map((childFolderId) => (
-            <FolderTreeNode
-              activeFolderId={activeFolderId}
-              depth={depth + 1}
-              expandedFolderIds={expandedFolderIds}
-              folderId={childFolderId}
-              key={childFolderId}
-              nodes={nodes}
-              onDeleteFolder={onDeleteFolder}
-              onOpenFolder={onOpenFolder}
-              onMoveFolder={onMoveFolder}
-              onRenameFolder={onRenameFolder}
-              onToggleFolder={onToggleFolder}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
+            Cancel
+          </Button>
+          <Button
+            disabled={
+              actionPending || (isMove ? !moveTargetId : !resourceName.trim())
+            }
+            onClick={onSave}
+          >
+            {actionPending ? (
+              <Loader2Icon className="animate-spin" data-icon="inline-start" />
+            ) : isMove ? (
+              <ArrowRightLeftIcon data-icon="inline-start" />
+            ) : isCreateFolder ? (
+              <FolderInputIcon data-icon="inline-start" />
+            ) : (
+              <PencilIcon data-icon="inline-start" />
+            )}
+            {isCreateFolder
+              ? "Create folder"
+              : isRename
+                ? "Save changes"
+                : "Move"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function FolderCard({
-  active,
-  folder,
-  onDelete,
-  onMove,
-  onOpen,
-  onRename,
-  onToggleInTree,
+function DeleteResourceDialog({
+  actionPending,
+  deleteDialogResource,
+  onConfirm,
+  onOpenChange,
 }: {
-  active: boolean;
-  folder: Folder;
-  onDelete: () => void;
-  onMove: () => void;
-  onOpen: () => void;
-  onRename: () => void;
-  onToggleInTree: () => void;
+  actionPending: boolean;
+  deleteDialogResource: ActionResource | null;
+  onConfirm: () => void;
+  onOpenChange: (resource: ActionResource | null) => void;
 }) {
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
-        <button
-          className="group flex w-full flex-col items-start gap-4 rounded-[1.5rem] border bg-background/85 p-4 text-left transition-colors hover:bg-muted/30"
-          onClick={onOpen}
-          type="button"
-        >
-          <div className="flex w-full items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex size-11 items-center justify-center rounded-2xl bg-muted text-foreground">
-                <FolderIcon />
-              </div>
-              <div className="min-w-0">
-                <p className="truncate font-medium text-foreground">
-                  {folder.name}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Updated {formatDate(folder.updated_at)}
-                </p>
-              </div>
-            </div>
-            <MoreHorizontalIcon className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+    <AlertDialog
+      onOpenChange={(open) => {
+        if (!open && !actionPending) {
+          onOpenChange(null);
+        }
+      }}
+      open={deleteDialogResource !== null}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete resource</AlertDialogTitle>
+          <AlertDialogDescription>
+            {deleteDialogResource
+              ? `Delete ${deleteDialogResource.name}? This action cannot be undone.`
+              : "This action cannot be undone."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={actionPending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={actionPending}
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
+          >
+            {actionPending ? (
+              <Loader2Icon className="animate-spin" data-icon="inline-start" />
+            ) : (
+              <TrashIcon data-icon="inline-start" />
+            )}
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function WorkspaceToolbar({
+  breadcrumbFolders,
+  onOpenFolder,
+  pageSize,
+  searchQuery,
+  setPageSize,
+  setSearchQuery,
+  setSortDirection,
+  setSortKey,
+  share,
+  sortDirection,
+  sortKey,
+}: ToolbarProps) {
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex min-w-0 flex-col gap-3">
+        <Breadcrumb>
+          <BreadcrumbList>
+            {breadcrumbFolders.length > 0 ? (
+              breadcrumbFolders.map((folder, index) => {
+                const isLast = index === breadcrumbFolders.length - 1;
+
+                return (
+                  <Fragment key={folder.id}>
+                    <BreadcrumbItem>
+                      {isLast ? (
+                        <BreadcrumbPage>{folder.name}</BreadcrumbPage>
+                      ) : (
+                        <BreadcrumbLink
+                          className="cursor-pointer"
+                          onClick={() => void onOpenFolder(folder.id)}
+                        >
+                          {folder.name}
+                        </BreadcrumbLink>
+                      )}
+                    </BreadcrumbItem>
+                    {!isLast ? <BreadcrumbSeparator /> : null}
+                  </Fragment>
+                );
+              })
+            ) : (
+              <BreadcrumbItem>
+                <BreadcrumbPage>Workspace</BreadcrumbPage>
+              </BreadcrumbItem>
+            )}
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-4xl tracking-[-0.05em] text-foreground sm:text-5xl">
+              File management
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+              Browse folders and files together in one workspace table, then use
+              right click for the actions that matter.
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
-            {active ? (
-              <Badge>Current</Badge>
-            ) : (
-              <Badge variant="outline">Folder</Badge>
-            )}
+            {share ? (
+              <Badge variant="outline">{share.permission_level}</Badge>
+            ) : null}
+            <Badge variant={share ? "default" : "secondary"}>
+              {share ? "Active share" : "No share"}
+            </Badge>
           </div>
-        </button>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onClick={onOpen}>
-          <FolderOpenIcon />
-          Open folder
-        </ContextMenuItem>
-        <ContextMenuItem onClick={onToggleInTree}>
-          <ChevronRightIcon />
-          Toggle in tree
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={onRename}>
-          <PencilIcon />
-          Rename
-        </ContextMenuItem>
-        <ContextMenuItem onClick={onMove}>
-          <FolderInputIcon />
-          Move
-        </ContextMenuItem>
-        <ContextMenuItem onClick={onDelete}>
-          <TrashIcon />
-          Delete
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[1fr_160px_150px_120px]">
+        <Field>
+          <FieldLabel htmlFor="workspace-search">Search</FieldLabel>
+          <FieldContent>
+            <div className="relative">
+              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                id="workspace-search"
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search by folder or file name"
+                value={searchQuery}
+              />
+            </div>
+          </FieldContent>
+        </Field>
+
+        <Field>
+          <FieldLabel>Sort by</FieldLabel>
+          <FieldContent>
+            <Select
+              onValueChange={(value) => setSortKey(value as SortKey)}
+              value={sortKey}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Sort field" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="name">Name</SelectItem>
+                  <SelectItem value="updated_at">Updated</SelectItem>
+                  <SelectItem value="size">Size</SelectItem>
+                  <SelectItem value="type">Type</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </FieldContent>
+        </Field>
+
+        <Field>
+          <FieldLabel>Direction</FieldLabel>
+          <FieldContent>
+            <Select
+              onValueChange={(value) =>
+                setSortDirection(value as "asc" | "desc")
+              }
+              value={sortDirection}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Direction" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="asc">Ascending</SelectItem>
+                  <SelectItem value="desc">Descending</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </FieldContent>
+        </Field>
+
+        <Field>
+          <FieldLabel>Page size</FieldLabel>
+          <FieldContent>
+            <Select
+              onValueChange={(value) => setPageSize(Number(value))}
+              value={String(pageSize)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Size" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <SelectItem key={size} value={size}>
+                      {size}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </FieldContent>
+        </Field>
+      </div>
+    </div>
   );
 }
 
-function FileRow({
-  file,
+function WorkspaceResults({
+  contents,
+  currentFolderId,
+  onDeleteResource,
+  onDownloadFile,
+  onEditResource,
+  onOpenFolder,
+  resourceResults,
+  searchQuery,
+  workspacePending,
+}: WorkspaceResultsProps) {
+  if (workspacePending && !contents) {
+    return (
+      <div className="grid gap-3">
+        <Skeleton className="h-28 rounded-2xl" />
+        <Skeleton className="h-16 rounded-2xl" />
+        <Skeleton className="h-16 rounded-2xl" />
+      </div>
+    );
+  }
+
+  if ((resourceResults?.pagination.total_items ?? 0) === 0) {
+    return (
+      <Empty className="border bg-muted/20 py-16">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            {searchQuery ? <SearchIcon /> : <FolderOpenIcon />}
+          </EmptyMedia>
+          <EmptyTitle>
+            {searchQuery
+              ? "No items match this search"
+              : "This folder is empty"}
+          </EmptyTitle>
+          <EmptyDescription>
+            {searchQuery
+              ? "Try a different query, sort order, or page size."
+              : "Right click anywhere in the workspace to upload, create a folder, or manage sharing."}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-background/70 shadow-lg shadow-black/5 backdrop-blur">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Kind</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Updated</TableHead>
+            <TableHead>Size</TableHead>
+            <TableHead className="text-right">Quick action</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {(resourceResults?.items ?? []).map((item) => (
+            <WorkspaceRow
+              item={item}
+              key={item.item_type === "FOLDER" ? item.folder.id : item.file.id}
+              onDelete={() =>
+                onDeleteResource(
+                  item.item_type === "FOLDER"
+                    ? toFolderActionResource(item.folder)
+                    : toFileActionResource(item.file, currentFolderId),
+                )
+              }
+              onDownload={() =>
+                item.item_type === "FILE"
+                  ? void onDownloadFile(item.file.id, item.file.stored_filename)
+                  : undefined
+              }
+              onMove={() =>
+                onEditResource({
+                  mode: "move",
+                  resource:
+                    item.item_type === "FOLDER"
+                      ? toFolderActionResource(item.folder)
+                      : toFileActionResource(item.file, currentFolderId),
+                })
+              }
+              onOpenFolder={() =>
+                item.item_type === "FOLDER"
+                  ? void onOpenFolder(item.folder.id)
+                  : undefined
+              }
+              onRename={() =>
+                onEditResource({
+                  mode: "rename",
+                  resource:
+                    item.item_type === "FOLDER"
+                      ? toFolderActionResource(item.folder)
+                      : toFileActionResource(item.file, currentFolderId),
+                })
+              }
+            />
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function WorkspaceRow({
+  item,
   onDelete,
   onDownload,
   onMove,
+  onOpenFolder,
   onRename,
-}: {
-  file: FileSummary;
-  onDelete: () => void;
-  onDownload: () => void;
-  onMove: () => void;
-  onRename: () => void;
-}) {
+}: WorkspaceRowProps) {
+  const isFolder = item.item_type === "FOLDER";
+  const name = isFolder ? item.folder.name : item.file.stored_filename;
+  const updatedAt = isFolder ? item.folder.updated_at : item.file.updated_at;
+  const size = isFolder ? "—" : formatBytes(item.file.size_bytes);
+  const status = isFolder ? "—" : item.file.status;
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <TableRow className="cursor-default">
-          <TableCell className="font-medium">{file.stored_filename}</TableCell>
-          <TableCell>
-            <Badge>{file.status}</Badge>
+          <TableCell className="font-medium">
+            {isFolder ? (
+              <button
+                className="flex items-center gap-3 text-left text-foreground"
+                onClick={onOpenFolder}
+                type="button"
+              >
+                <FolderIcon className="text-muted-foreground" />
+                <span>{name}</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-3">
+                <FileTextIcon className="text-muted-foreground" />
+                <span>{name}</span>
+              </div>
+            )}
           </TableCell>
-          <TableCell>{formatDate(file.updated_at)}</TableCell>
-          <TableCell>{formatBytes(file.size_bytes)}</TableCell>
+          <TableCell>
+            <Badge variant="outline">{isFolder ? "Folder" : "File"}</Badge>
+          </TableCell>
+          <TableCell>
+            {status === "—" ? "—" : <Badge>{status}</Badge>}
+          </TableCell>
+          <TableCell>{formatDate(updatedAt)}</TableCell>
+          <TableCell>{size}</TableCell>
           <TableCell className="text-right">
-            <Button onClick={onDownload} size="sm" variant="ghost">
-              <ArrowDownToLineIcon data-icon="inline-start" />
-              Download
-            </Button>
+            {isFolder ? (
+              <Button onClick={onOpenFolder} size="sm" variant="ghost">
+                <FolderOpenIcon data-icon="inline-start" />
+                Open
+              </Button>
+            ) : (
+              <Button onClick={onDownload} size="sm" variant="ghost">
+                <ArrowDownToLineIcon data-icon="inline-start" />
+                Download
+              </Button>
+            )}
           </TableCell>
         </TableRow>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onClick={onDownload}>
-          <ArrowDownToLineIcon />
-          Download file
-        </ContextMenuItem>
-        <ContextMenuSeparator />
+        {isFolder ? (
+          <ContextMenuItem onClick={onOpenFolder}>
+            <FolderOpenIcon />
+            Open folder
+          </ContextMenuItem>
+        ) : (
+          <ContextMenuItem onClick={onDownload}>
+            <ArrowDownToLineIcon />
+            Download file
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onClick={onRename}>
           <PencilIcon />
           Rename
@@ -1641,6 +1345,28 @@ function FileRow({
       </ContextMenuContent>
     </ContextMenu>
   );
+}
+
+function toFolderActionResource(folder: Folder): ActionResource {
+  return {
+    kind: "folder",
+    id: folder.id,
+    name: folder.name,
+    parentId: folder.parent_id,
+    pathCache: folder.path_cache,
+  };
+}
+
+function toFileActionResource(
+  file: FileSummary,
+  parentId: string,
+): ActionResource {
+  return {
+    kind: "file",
+    id: file.id,
+    name: file.stored_filename,
+    parentId,
+  };
 }
 
 function getErrorMessage(error: unknown): string {
