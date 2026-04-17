@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.api.errors import to_http_exception
@@ -18,6 +19,8 @@ from app.schemas.share import ShareAccessResponse, SharedFolderContentsResponse
 router = APIRouter()
 optional_user_dependency = Depends(get_optional_current_user)
 share_access_use_case_dependency = Depends(get_share_access_use_case)
+shared_upload_file_dependency = File(...)
+shared_upload_folder_dependency = Form(default=None)
 
 
 @router.get("/s/{token}", response_model=ShareAccessResponse)
@@ -83,6 +86,28 @@ def create_shared_folder(
 ) -> FolderRead:
     try:
         return use_case.create_shared_folder(token, payload, current_user)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.post("/s/{token}/files", response_model=FileRead, status_code=status.HTTP_201_CREATED)
+async def upload_shared_file(
+    token: str,
+    file: Annotated[UploadFile, shared_upload_file_dependency],
+    folder_id: Annotated[uuid.UUID | None, shared_upload_folder_dependency],
+    current_user: User | None = optional_user_dependency,
+    use_case: ShareAccessUseCase = share_access_use_case_dependency,
+) -> FileRead:
+    data = await file.read()
+    try:
+        return use_case.upload_shared_file(
+            token,
+            file.filename or "upload.bin",
+            data,
+            file.content_type,
+            current_user,
+            folder_id,
+        )
     except AppError as exc:
         raise to_http_exception(exc) from exc
 

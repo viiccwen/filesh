@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import uuid
 from datetime import UTC, datetime
@@ -52,6 +53,55 @@ def build_object_key(
     filename: str,
 ) -> str:
     return f"{owner_id}/{folder_id}/{session_id}/{filename}"
+
+
+def create_file_in_folder(
+    session: Session,
+    owner: User,
+    folder_id: uuid.UUID,
+    original_filename: str,
+    data: bytes,
+    content_type: str | None,
+    storage: ObjectStorage,
+    uploaded_by: uuid.UUID | None = None,
+) -> File:
+    folder = get_folder_for_owner(session, folder_id, owner.id)
+    resolved_filename = resolve_filename_collision(session, folder.id, original_filename)
+    object_id = uuid.uuid4()
+    object_key = build_object_key(owner.id, folder.id, object_id, resolved_filename)
+    extension = split_filename(resolved_filename)[1].lstrip(".") or None
+
+    storage.put_object(
+        bucket=settings.minio_bucket,
+        object_key=object_key,
+        data=data,
+        content_type=content_type,
+    )
+
+    file = File(
+        owner_id=owner.id,
+        folder_id=folder.id,
+        original_filename=original_filename,
+        stored_filename=resolved_filename,
+        extension=extension,
+        content_type=content_type,
+        size_bytes=len(data),
+        checksum_sha256=hashlib.sha256(data).hexdigest(),
+        object_key=object_key,
+        storage_bucket=settings.minio_bucket,
+        status=FileStatus.ACTIVE,
+        uploaded_by=uploaded_by or owner.id,
+    )
+    file_repository.add_file(session, file)
+
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("File name already exists in this location") from exc
+
+    session.refresh(file)
+    return file
 
 
 def init_upload(session: Session, owner: User, payload: UploadInitRequest) -> UploadSession:

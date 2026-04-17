@@ -258,6 +258,62 @@ def test_folder_share_upload_permission_allows_creating_subfolder(client) -> Non
     assert [item["name"] for item in contents_response.json()["folders"]] == ["guest-child"]
 
 
+def test_folder_share_upload_permission_allows_uploading_file(client) -> None:
+    headers = register_and_login(client, "upload-file-share@example.com", "upload-file-share-user")
+    folder_response = client.post("/api/folders", headers=headers, json={"name": "incoming"})
+    share_response = client.post(
+        f"/api/folders/{folder_response.json()['id']}/share",
+        headers=headers,
+        json={
+            "share_mode": "GUEST",
+            "permission_level": "UPLOAD",
+            "expiry": "never",
+            "invitation_emails": [],
+        },
+    )
+    token = share_response.json()["share_url"].split("/s/")[1]
+
+    upload_response = client.post(
+        f"/s/{token}/files",
+        files={"file": ("guest-note.txt", b"hello from guest", "text/plain")},
+    )
+    contents_response = client.get(f"/s/{token}/contents")
+    file_id = upload_response.json()["id"]
+    download_response = client.get(f"/s/{token}/files/{file_id}/download")
+
+    assert upload_response.status_code == 201
+    assert upload_response.json()["stored_filename"] == "guest-note.txt"
+    assert contents_response.status_code == 200
+    assert [item["stored_filename"] for item in contents_response.json()["files"]] == [
+        "guest-note.txt"
+    ]
+    assert download_response.status_code == 200
+    assert download_response.content == b"hello from guest"
+
+
+def test_folder_share_without_upload_permission_rejects_file_upload(client) -> None:
+    headers = register_and_login(client, "upload-denied@example.com", "upload-denied-user")
+    folder_response = client.post("/api/folders", headers=headers, json={"name": "readonly"})
+    share_response = client.post(
+        f"/api/folders/{folder_response.json()['id']}/share",
+        headers=headers,
+        json={
+            "share_mode": "GUEST",
+            "permission_level": "VIEW_DOWNLOAD",
+            "expiry": "never",
+            "invitation_emails": [],
+        },
+    )
+    token = share_response.json()["share_url"].split("/s/")[1]
+
+    upload_response = client.post(
+        f"/s/{token}/files",
+        files={"file": ("blocked.txt", b"nope", "text/plain")},
+    )
+
+    assert upload_response.status_code == 403
+
+
 def test_file_share_overrides_folder_share_policy(client) -> None:
     owner_headers = register_and_login(client, "matrix-owner@example.com", "matrix-owner-user")
     invited_headers = register_and_login(

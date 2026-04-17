@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.application.shared.files import get_file_for_owner
+from app.application.shared.files import create_file_in_folder, get_file_for_owner
 from app.application.shared.folders import (
     ROOT_FOLDER_NAME,
     create_folder,
@@ -371,4 +371,28 @@ def create_shared_subfolder(
         session,
         share_link.owner,
         FolderCreateRequest(name=payload.name, parent_id=parent_folder.id),
+    )
+
+
+def create_shared_file(
+    session: Session,
+    share_link: ShareLink,
+    requester: User | None,
+    filename: str,
+    data: bytes,
+    content_type: str | None,
+    storage,
+    folder_id: uuid.UUID | None = None,
+) -> File:
+    authorize_share_permission(share_link, requester, PermissionLevel.UPLOAD)
+    target_folder = get_shared_folder_target(session, share_link, folder_id)
+    return create_file_in_folder(
+        session,
+        share_link.owner,
+        target_folder.id,
+        filename,
+        data,
+        content_type,
+        storage,
+        uploaded_by=requester.id if requester is not None else share_link.owner_id,
     )

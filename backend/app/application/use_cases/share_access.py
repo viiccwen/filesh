@@ -11,6 +11,7 @@ from app.application.shared.presenters import (
 )
 from app.application.shared.shares import (
     authorize_share_permission,
+    create_shared_file,
     create_shared_subfolder,
     get_shared_folder_contents_for_target,
     get_shared_folder_target,
@@ -100,6 +101,28 @@ class ShareAccessUseCase:
         share_link = resolve_share_by_token(self.session, token)
         folder = create_shared_subfolder(self.session, share_link, current_user, payload)
         return FolderRead.model_validate(folder)
+
+    def upload_shared_file(
+        self,
+        token: str,
+        filename: str,
+        data: bytes,
+        content_type: str | None,
+        current_user: User | None,
+        folder_id: uuid.UUID | None = None,
+    ) -> FileRead:
+        share_link = resolve_share_by_token(self.session, token)
+        file = create_shared_file(
+            self.session,
+            share_link,
+            current_user,
+            filename,
+            data,
+            content_type,
+            self.object_storage,
+            folder_id,
+        )
+        return FileRead.model_validate(file)
 
     def delete_shared_folder(
         self,
