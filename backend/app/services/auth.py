@@ -10,7 +10,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.entities import User
+from app.models import User
 from app.schemas.auth import AccessTokenResponse, LoginRequest, RegisterRequest
 from app.schemas.user import UserRead
 

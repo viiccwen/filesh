@@ -34,6 +34,7 @@ def session() -> Iterator[Session]:
     finally:
         db_session.close()
         Base.metadata.drop_all(engine)
+        engine.dispose()
 
 
 @pytest.fixture()

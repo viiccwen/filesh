@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.db import get_db_session
 from app.core.security import clear_refresh_cookie, decode_token, set_refresh_cookie
-from app.models.entities import User
+from app.models import User
 from app.schemas.auth import AccessTokenResponse, LoginRequest, LogoutResponse, RegisterRequest
 from app.schemas.user import UserRead
 from app.services.auth import authenticate_user, build_auth_response, register_user

@@ -22,6 +22,7 @@ dev = [
   "pre-commit>=4.5.1",
   "pytest>=8.3.5",
   "pytest-asyncio>=0.26.0",
+  "pytest-cov>=6.1.1",
   "ruff>=0.11.5",
 ]
 
@@ -33,8 +34,13 @@ target-version = "py313"
 select = ["E", "F", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
+addopts = "--cov=app --cov-report=term-missing --cov-fail-under=80"
 asyncio_mode = "auto"
 pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/**/__init__.py"]
 
 [tool.alembic]
 script_location = "alembic"

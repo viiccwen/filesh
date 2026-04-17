@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.core.security import decode_token
-from app.models.entities import User
+from app.models import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 db_session_dependency = Depends(get_db_session)
