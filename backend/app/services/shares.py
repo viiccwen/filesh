@@ -5,10 +5,15 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
+from app.domain import (
+    AuthorizationError,
+    ConflictError,
+    GoneError,
+    NotFoundError,
+    ValidationError,
+)
 from app.models import (
     File,
     Folder,
@@ -19,6 +24,9 @@ from app.models import (
     ShareMode,
     User,
 )
+from app.repositories import files as file_repository
+from app.repositories import folders as folder_repository
+from app.repositories import shares as share_repository
 from app.schemas.folder import FolderCreateRequest
 from app.schemas.share import ShareRead, ShareUpsertRequest
 from app.services.files import get_file_for_owner
@@ -58,17 +66,7 @@ def get_active_share_for_resource(
     resource_type: ResourceType,
     resource_id: uuid.UUID,
 ) -> ShareLink | None:
-    now = datetime.now(UTC)
-    return session.scalar(
-        select(ShareLink)
-        .options(selectinload(ShareLink.invitations))
-        .where(
-            ShareLink.resource_type == resource_type,
-            ShareLink.resource_id == resource_id,
-            ShareLink.is_revoked.is_(False),
-            (ShareLink.expires_at.is_(None) | (ShareLink.expires_at > now)),
-        )
-    )
+    return share_repository.get_active_share_for_resource(session, resource_type, resource_id)
 
 
 def validate_share_resource(
@@ -87,30 +85,19 @@ def resolve_invited_users(session: Session, emails: list[str]) -> list[User]:
         return []
 
     normalized = sorted({email.lower() for email in emails})
-    users = list(
-        session.scalars(select(User).where(User.email.in_(normalized), User.is_active.is_(True)))
-    )
+    users = share_repository.get_active_users_by_emails(session, normalized)
     matched_emails = {user.email.lower() for user in users}
     missing = [email for email in normalized if email not in matched_emails]
     if missing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invited users must be registered: {', '.join(missing)}",
-        )
+        raise ValidationError(f"Invited users must be registered: {', '.join(missing)}")
     return users
 
 
 def assert_share_payload(payload: ShareUpsertRequest) -> list[User] | None:
     if payload.share_mode is ShareMode.EMAIL_INVITATION and not payload.invitation_emails:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation emails are required for email invitation mode",
-        )
+        raise ValidationError("Invitation emails are required for email invitation mode")
     if payload.share_mode is not ShareMode.EMAIL_INVITATION and payload.invitation_emails:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation emails are only allowed for email invitation mode",
-        )
+        raise ValidationError("Invitation emails are only allowed for email invitation mode")
     return None
 
 
@@ -139,10 +126,7 @@ def create_share(
     assert_share_payload(payload)
 
     if get_active_share_for_resource(session, resource_type, resource_id) is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Active share link already exists",
-        )
+        raise ConflictError("Active share link already exists")
 
     invited_users = resolve_invited_users(
         session,
@@ -159,7 +143,7 @@ def create_share(
         expires_at=resolve_expiry(payload.expiry),
         is_revoked=False,
     )
-    session.add(share_link)
+    share_repository.add_share_link(session, share_link)
     session.flush()
 
     for user in invited_users:
@@ -189,10 +173,7 @@ def update_share(
 
     share_link = get_active_share_for_resource(session, resource_type, resource_id)
     if share_link is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Active share link not found",
-        )
+        raise NotFoundError("Active share link not found")
 
     invited_users = resolve_invited_users(
         session,
@@ -228,10 +209,7 @@ def get_share(
     validate_share_resource(session, owner, resource_type, resource_id)
     share_link = get_active_share_for_resource(session, resource_type, resource_id)
     if share_link is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Active share link not found",
-        )
+        raise NotFoundError("Active share link not found")
     return to_share_read(share_link, "[redacted]")
 
 
@@ -244,24 +222,17 @@ def revoke_share(
     validate_share_resource(session, owner, resource_type, resource_id)
     share_link = get_active_share_for_resource(session, resource_type, resource_id)
     if share_link is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Active share link not found",
-        )
+        raise NotFoundError("Active share link not found")
     share_link.is_revoked = True
     session.commit()
 
 
 def resolve_share_by_token(session: Session, token: str) -> ShareLink:
-    share_link = session.scalar(
-        select(ShareLink)
-        .options(selectinload(ShareLink.invitations))
-        .where(ShareLink.token_hash == hash_share_token(token))
-    )
+    share_link = share_repository.get_share_by_token_hash(session, hash_share_token(token))
     if share_link is None or share_link.is_revoked:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Share link not found")
+        raise NotFoundError("Share link not found")
     if share_link.expires_at is not None and share_link.expires_at <= datetime.now(UTC):
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Share link expired")
+        raise GoneError("Share link expired")
     return share_link
 
 
@@ -269,19 +240,13 @@ def authorize_share_access(share_link: ShareLink, requester: User | None) -> Non
     if share_link.share_mode is ShareMode.GUEST:
         return
     if requester is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Share access unauthorized",
-        )
+        raise AuthorizationError("Share access unauthorized")
     if share_link.share_mode is ShareMode.USER_ONLY:
         return
 
     invited_emails = {inv.invited_email.lower() for inv in share_link.invitations}
     if requester.email.lower() not in invited_emails:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Share access unauthorized",
-        )
+        raise AuthorizationError("Share access unauthorized")
 
 
 def authorize_share_permission(
@@ -291,10 +256,7 @@ def authorize_share_permission(
 ) -> None:
     authorize_share_access(share_link, requester)
     if PERMISSION_RANK[share_link.permission_level] < PERMISSION_RANK[required_permission]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Share permission denied",
-        )
+        raise AuthorizationError("Share permission denied")
 
 
 def get_shared_resource(
@@ -302,14 +264,14 @@ def get_shared_resource(
     share_link: ShareLink,
 ) -> File | Folder:
     if share_link.resource_type is ResourceType.FILE:
-        file = session.scalar(select(File).where(File.id == share_link.resource_id))
+        file = share_repository.get_shared_file(session, share_link.resource_id)
         if file is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+            raise NotFoundError("Resource not found")
         return file
 
-    folder = session.scalar(select(Folder).where(Folder.id == share_link.resource_id))
+    folder = share_repository.get_shared_folder(session, share_link.resource_id)
     if folder is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+        raise NotFoundError("Resource not found")
     return folder
 
 
@@ -318,10 +280,7 @@ def get_shared_folder_contents(
     share_link: ShareLink,
 ) -> tuple[Folder, list[Folder], list[File]]:
     if share_link.resource_type is not ResourceType.FOLDER:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Shared resource is not a folder",
-        )
+        raise ValidationError("Shared resource is not a folder")
     folder, folders, files = list_folder_contents(
         session,
         share_link.resource_id,
@@ -349,36 +308,29 @@ def get_shared_folder_target(
     folder_id: uuid.UUID | None = None,
 ) -> Folder:
     if share_link.resource_type is not ResourceType.FOLDER:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Shared resource is not a folder",
-        )
+        raise ValidationError("Shared resource is not a folder")
 
-    root_folder = session.scalar(select(Folder).where(Folder.id == share_link.resource_id))
+    root_folder = folder_repository.get_folder_by_id(session, share_link.resource_id)
     if root_folder is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+        raise NotFoundError("Resource not found")
     if folder_id is None or folder_id == root_folder.id:
         return root_folder
 
-    folder = session.scalar(
-        select(Folder).where(Folder.id == folder_id, Folder.owner_id == share_link.owner_id)
-    )
+    folder = folder_repository.get_folder_by_owner(session, folder_id, share_link.owner_id)
     if folder is None or not is_folder_within_shared_tree(root_folder, folder):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+        raise NotFoundError("Resource not found")
     return folder
 
 
 def get_shared_file_target(session: Session, share_link: ShareLink, file_id: uuid.UUID) -> File:
-    file = session.scalar(
-        select(File).where(File.id == file_id, File.owner_id == share_link.owner_id)
-    )
+    file = file_repository.get_file_by_owner(session, file_id, share_link.owner_id)
     if file is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+        raise NotFoundError("Resource not found")
 
-    folder = session.scalar(select(Folder).where(Folder.id == file.folder_id))
+    folder = folder_repository.get_folder_by_id(session, file.folder_id)
     root_folder = get_shared_folder_target(session, share_link)
     if folder is None or not is_folder_within_shared_tree(root_folder, folder):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+        raise NotFoundError("Resource not found")
     return file
 
 
@@ -426,10 +378,7 @@ def create_shared_subfolder(
     authorize_share_permission(share_link, requester, PermissionLevel.UPLOAD)
     parent_folder = get_shared_folder_target(session, share_link, payload.parent_id)
     if payload.name == ROOT_FOLDER_NAME:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Folder name is reserved",
-        )
+        raise ValidationError("Folder name is reserved")
     return create_folder(
         session,
         share_link.owner,

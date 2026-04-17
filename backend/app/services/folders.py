@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
-from app.models import File, Folder, UploadSession, User
+from app.domain import ConflictError, NotFoundError, ValidationError
+from app.models import File, Folder, User
+from app.repositories import files as file_repository
+from app.repositories import folders as folder_repository
 from app.schemas.folder import FolderCreateRequest
 
 ROOT_FOLDER_NAME = "/"
@@ -23,19 +24,13 @@ def create_root_folder(session: Session, user: User) -> Folder:
         name=ROOT_FOLDER_NAME,
         path_cache=ROOT_FOLDER_PATH,
     )
-    session.add(root_folder)
+    folder_repository.add_folder(session, root_folder)
     session.flush()
     return root_folder
 
 
 def get_root_folder(session: Session, user_id: uuid.UUID) -> Folder | None:
-    return session.scalar(
-        select(Folder).where(
-            Folder.owner_id == user_id,
-            Folder.parent_id.is_(None),
-            Folder.name == ROOT_FOLDER_NAME,
-        )
-    )
+    return folder_repository.get_root_folder(session, user_id, ROOT_FOLDER_NAME)
 
 
 def get_or_create_root_folder(session: Session, user: User) -> Folder:
@@ -50,11 +45,9 @@ def get_or_create_root_folder(session: Session, user: User) -> Folder:
 
 
 def get_folder_for_owner(session: Session, folder_id: uuid.UUID, owner_id: uuid.UUID) -> Folder:
-    folder = session.scalar(
-        select(Folder).where(Folder.id == folder_id, Folder.owner_id == owner_id)
-    )
+    folder = folder_repository.get_folder_by_owner(session, folder_id, owner_id)
     if folder is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+        raise NotFoundError("Folder not found")
     return folder
 
 
@@ -66,10 +59,7 @@ def build_folder_path(parent: Folder | None, folder_name: str) -> str:
 
 def create_folder(session: Session, owner: User, payload: FolderCreateRequest) -> Folder:
     if payload.name == ROOT_FOLDER_NAME:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Folder name is reserved",
-        )
+        raise ValidationError("Folder name is reserved")
 
     parent = (
         get_folder_for_owner(session, payload.parent_id, owner.id)
@@ -83,16 +73,13 @@ def create_folder(session: Session, owner: User, payload: FolderCreateRequest) -
         name=payload.name,
         path_cache=build_folder_path(parent, payload.name),
     )
-    session.add(folder)
+    folder_repository.add_folder(session, folder)
 
     try:
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Folder name already exists in this location",
-        ) from exc
+        raise ConflictError("Folder name already exists in this location") from exc
 
     session.refresh(folder)
     return folder
@@ -103,13 +90,9 @@ def list_folder_contents(
     folder_id: uuid.UUID,
     owner_id: uuid.UUID,
 ) -> tuple[Folder, list[Folder], list[File]]:
-    folder = session.scalar(
-        select(Folder)
-        .options(selectinload(Folder.children), selectinload(Folder.files))
-        .where(Folder.id == folder_id, Folder.owner_id == owner_id)
-    )
+    folder = folder_repository.get_folder_with_contents_by_owner(session, folder_id, owner_id)
     if folder is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+        raise NotFoundError("Folder not found")
 
     child_folders = sorted(folder.children, key=lambda item: item.name.lower())
     files = sorted(folder.files, key=lambda item: item.stored_filename.lower())
@@ -122,23 +105,11 @@ def list_descendant_folder_ids(
     folder: Folder,
 ) -> list[uuid.UUID]:
     path_prefix = folder.path_cache
-    return list(
-        session.scalars(
-            select(Folder.id).where(
-                Folder.owner_id == owner_id,
-                (
-                    (Folder.path_cache == path_prefix)
-                    | Folder.path_cache.startswith(f"{path_prefix}/")
-                ),
-            )
-        )
-    )
+    return folder_repository.list_descendant_folder_ids(session, owner_id, path_prefix)
 
 
 def list_descendant_files(session: Session, folder_ids: list[uuid.UUID]) -> list[File]:
-    if not folder_ids:
-        return []
-    return list(session.scalars(select(File).where(File.folder_id.in_(folder_ids))))
+    return file_repository.list_files_by_folder_ids(session, folder_ids)
 
 
 def delete_folder(
@@ -149,10 +120,7 @@ def delete_folder(
 ) -> None:
     folder = get_folder_for_owner(session, folder_id, owner_id)
     if folder.parent_id is None and folder.name == ROOT_FOLDER_NAME:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Root folder cannot be deleted",
-        )
+        raise ValidationError("Root folder cannot be deleted")
 
     folder_ids = list_descendant_folder_ids(session, owner_id, folder)
     files_to_cleanup = list_descendant_files(session, folder_ids)
@@ -165,9 +133,7 @@ def delete_folder(
         ],
         metadata={"owner_id": str(owner_id)},
     )
-    for upload_session in session.scalars(
-        select(UploadSession).where(UploadSession.folder_id.in_(folder_ids))
-    ):
+    for upload_session in folder_repository.list_upload_sessions_by_folder_ids(session, folder_ids):
         session.delete(upload_session)
     session.delete(folder)
     session.commit()

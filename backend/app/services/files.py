@@ -4,15 +4,15 @@ import os
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import HTTPException, status
-from sqlalchemy import not_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
 from app.core.storage import ObjectStorage
+from app.domain import ConflictError, NotFoundError, ValidationError
 from app.models import File, FileStatus, UploadSession, UploadSessionStatus, User
+from app.repositories import files as file_repository
 from app.schemas.file import UploadFailRequest, UploadFinalizeRequest, UploadInitRequest
 from app.services.folders import get_folder_for_owner
 
@@ -30,19 +30,8 @@ def resolve_filename_collision(session: Session, folder_id: uuid.UUID, filename:
     normalized = normalize_filename(filename)
     stem, extension = split_filename(normalized)
 
-    existing_filenames = {
-        row[0]
-        for row in session.execute(select(File.stored_filename).where(File.folder_id == folder_id))
-    }
-    reserved_filenames = {
-        row[0]
-        for row in session.execute(
-            select(UploadSession.resolved_filename).where(
-                UploadSession.folder_id == folder_id,
-                not_(UploadSession.status.in_([UploadSessionStatus.FAILED])),
-            )
-        )
-    }
+    existing_filenames = file_repository.list_filenames_in_folder(session, folder_id)
+    reserved_filenames = file_repository.list_reserved_filenames_in_folder(session, folder_id)
     occupied = existing_filenames | reserved_filenames
 
     if normalized not in occupied:
@@ -78,7 +67,7 @@ def init_upload(session: Session, owner: User, payload: UploadInitRequest) -> Up
         expected_size=payload.expected_size,
         status=UploadSessionStatus.PENDING,
     )
-    session.add(upload_session)
+    file_repository.add_upload_session(session, upload_session)
     session.flush()
     upload_session.object_key = build_object_key(
         owner.id,
@@ -96,37 +85,22 @@ def get_upload_session_for_owner(
     upload_session_id: uuid.UUID,
     owner_id: uuid.UUID,
 ) -> UploadSession:
-    upload_session = session.scalar(
-        select(UploadSession).where(
-            UploadSession.id == upload_session_id,
-            UploadSession.owner_id == owner_id,
-        )
+    upload_session = file_repository.get_upload_session_by_owner(
+        session, upload_session_id, owner_id
     )
     if upload_session is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Upload session not found",
-        )
+        raise NotFoundError("Upload session not found")
     return upload_session
 
 
 def finalize_upload(session: Session, owner: User, payload: UploadFinalizeRequest) -> File:
     upload_session = get_upload_session_for_owner(session, payload.upload_session_id, owner.id)
     if upload_session.status is UploadSessionStatus.FAILED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Upload session already failed",
-        )
+        raise ConflictError("Upload session already failed")
     if upload_session.status is UploadSessionStatus.PENDING:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Upload content not received",
-        )
+        raise ConflictError("Upload content not received")
     if upload_session.status is UploadSessionStatus.FINALIZED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Upload session already finalized",
-        )
+        raise ConflictError("Upload session already finalized")
 
     extension = split_filename(upload_session.resolved_filename)[1].lstrip(".") or None
     file = File(
@@ -143,7 +117,7 @@ def finalize_upload(session: Session, owner: User, payload: UploadFinalizeReques
         status=FileStatus.ACTIVE,
         uploaded_by=owner.id,
     )
-    session.add(file)
+    file_repository.add_file(session, file)
 
     upload_session.file = file
     upload_session.status = UploadSessionStatus.FINALIZED
@@ -153,10 +127,7 @@ def finalize_upload(session: Session, owner: User, payload: UploadFinalizeReques
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="File name already exists in this location",
-        ) from exc
+        raise ConflictError("File name already exists in this location") from exc
 
     session.refresh(file)
     return file
@@ -172,20 +143,11 @@ def upload_content(
 ) -> UploadSession:
     upload_session = get_upload_session_for_owner(session, upload_session_id, owner.id)
     if upload_session.status is UploadSessionStatus.FAILED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Upload session already failed",
-        )
+        raise ConflictError("Upload session already failed")
     if upload_session.status is UploadSessionStatus.FINALIZED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Upload session already finalized",
-        )
+        raise ConflictError("Upload session already finalized")
     if len(data) > upload_session.expected_size:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded content exceeds expected size",
-        )
+        raise ValidationError("Uploaded content exceeds expected size")
 
     storage.put_object(
         bucket=settings.minio_bucket,
@@ -209,10 +171,7 @@ def fail_upload(
 ) -> UploadSession:
     upload_session = get_upload_session_for_owner(session, payload.upload_session_id, owner.id)
     if upload_session.status is UploadSessionStatus.FINALIZED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Upload session already finalized",
-        )
+        raise ConflictError("Upload session already finalized")
 
     upload_session.status = UploadSessionStatus.FAILED
     upload_session.failure_reason = payload.failure_reason
@@ -237,9 +196,9 @@ def fail_upload(
 
 
 def get_file_for_owner(session: Session, file_id: uuid.UUID, owner_id: uuid.UUID) -> File:
-    file = session.scalar(select(File).where(File.id == file_id, File.owner_id == owner_id))
+    file = file_repository.get_file_by_owner(session, file_id, owner_id)
     if file is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        raise NotFoundError("File not found")
     return file
 
 
