@@ -3,12 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Cookie, Depends, Response, status
 
 from app.api.errors import to_http_exception
+from app.application.dto import AuthenticatedUser
 from app.application.use_cases.auth import AuthUseCase
 from app.core.config import settings
 from app.dependencies.auth import get_current_user
 from app.dependencies.use_cases import get_auth_use_case
 from app.domain import AppError
-from app.models import User
 from app.schemas.auth import (
     AccessTokenResponse,
     ChangePasswordRequest,
@@ -73,7 +73,7 @@ def logout(response: Response, use_case: AuthUseCase = auth_use_case_dependency)
 @router.post("/change-password", response_model=ChangePasswordResponse)
 def change_password(
     payload: ChangePasswordRequest,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: AuthUseCase = auth_use_case_dependency,
 ) -> ChangePasswordResponse:
     try:
@@ -85,7 +85,7 @@ def change_password(
 @router.delete("/me", response_model=DeleteAccountResponse)
 def delete_account(
     response: Response,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: AuthUseCase = auth_use_case_dependency,
 ) -> DeleteAccountResponse:
     try:

@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models import PermissionLevel, ResourceType, ShareMode
+from app.domain.enums import PermissionLevel, ResourceType, ShareMode
 from app.schemas.file import FileRead, FileSummary
 from app.schemas.folder import FolderRead
 

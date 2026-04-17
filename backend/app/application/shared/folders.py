@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
 from app.domain import ConflictError, NotFoundError, ValidationError
-from app.models import File, Folder, User
+from app.models import File, Folder
 from app.repositories import files as file_repository
 from app.repositories import folders as folder_repository
 from app.schemas.folder import FolderCreateRequest
@@ -17,9 +17,9 @@ ROOT_FOLDER_NAME = "/"
 ROOT_FOLDER_PATH = "/"
 
 
-def create_root_folder(session: Session, user: User) -> Folder:
+def create_root_folder(session: Session, owner_id: uuid.UUID) -> Folder:
     root_folder = Folder(
-        owner_id=user.id,
+        owner_id=owner_id,
         parent_id=None,
         name=ROOT_FOLDER_NAME,
         path_cache=ROOT_FOLDER_PATH,
@@ -33,12 +33,12 @@ def get_root_folder(session: Session, user_id: uuid.UUID) -> Folder | None:
     return folder_repository.get_root_folder(session, user_id, ROOT_FOLDER_NAME)
 
 
-def get_or_create_root_folder(session: Session, user: User) -> Folder:
-    root_folder = get_root_folder(session, user.id)
+def get_or_create_root_folder(session: Session, owner_id: uuid.UUID) -> Folder:
+    root_folder = get_root_folder(session, owner_id)
     if root_folder is not None:
         return root_folder
 
-    root_folder = create_root_folder(session, user)
+    root_folder = create_root_folder(session, owner_id)
     session.commit()
     session.refresh(root_folder)
     return root_folder
@@ -57,18 +57,18 @@ def build_folder_path(parent: Folder | None, folder_name: str) -> str:
     return f"{parent.path_cache}/{folder_name}"
 
 
-def create_folder(session: Session, owner: User, payload: FolderCreateRequest) -> Folder:
+def create_folder(session: Session, owner_id: uuid.UUID, payload: FolderCreateRequest) -> Folder:
     if payload.name == ROOT_FOLDER_NAME:
         raise ValidationError("Folder name is reserved")
 
     parent = (
-        get_folder_for_owner(session, payload.parent_id, owner.id)
+        get_folder_for_owner(session, payload.parent_id, owner_id)
         if payload.parent_id is not None
-        else get_or_create_root_folder(session, owner)
+        else get_or_create_root_folder(session, owner_id)
     )
 
     folder = Folder(
-        owner_id=owner.id,
+        owner_id=owner_id,
         parent_id=parent.id if parent is not None else None,
         name=payload.name,
         path_cache=build_folder_path(parent, payload.name),

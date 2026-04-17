@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.api.errors import to_http_exception
+from app.application.dto import AuthenticatedUser
 from app.application.use_cases.files import FileUseCase
 from app.dependencies.auth import get_current_user
 from app.dependencies.use_cases import get_file_use_case
 from app.domain import AppError
-from app.models import User
 from app.schemas.file import (
     FileMoveRequest,
     FileRead,
@@ -30,7 +30,7 @@ file_use_case_dependency = Depends(get_file_use_case)
 @router.post("/upload/init", response_model=UploadInitResponse, status_code=status.HTTP_201_CREATED)
 def upload_init(
     payload: UploadInitRequest,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> UploadInitResponse:
     try:
@@ -42,7 +42,7 @@ def upload_init(
 @router.post("/upload/finalize", response_model=FileRead)
 def upload_finalize(
     payload: UploadFinalizeRequest,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> FileRead:
     try:
@@ -55,7 +55,7 @@ def upload_finalize(
 async def upload_content_object(
     upload_session_id: uuid.UUID,
     file: UploadFile,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> Response:
     data = await file.read()
@@ -69,7 +69,7 @@ async def upload_content_object(
 @router.post("/upload/fail", status_code=status.HTTP_204_NO_CONTENT)
 def upload_fail(
     payload: UploadFailRequest,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> Response:
     try:
@@ -82,7 +82,7 @@ def upload_fail(
 @router.get("/{file_id}", response_model=FileRead)
 def get_file(
     file_id: uuid.UUID,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> FileRead:
     try:
@@ -94,7 +94,7 @@ def get_file(
 @router.get("/{file_id}/download")
 def download_file(
     file_id: uuid.UUID,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> StreamingResponse:
     try:
@@ -111,7 +111,7 @@ def download_file(
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_file(
     file_id: uuid.UUID,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> Response:
     try:
@@ -125,7 +125,7 @@ def remove_file(
 def rename_file(
     file_id: uuid.UUID,
     payload: FileRenameRequest,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> FileRead:
     try:
@@ -138,7 +138,7 @@ def rename_file(
 def move_file(
     file_id: uuid.UUID,
     payload: FileMoveRequest,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> FileRead:
     try:
@@ -150,7 +150,7 @@ def move_file(
 @router.get("/{file_id}/share", response_model=ShareRead)
 def get_file_share(
     file_id: uuid.UUID,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> ShareRead:
     try:
@@ -163,7 +163,7 @@ def get_file_share(
 def create_file_share(
     file_id: uuid.UUID,
     payload: ShareUpsertRequest,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> ShareRead:
     try:
@@ -176,7 +176,7 @@ def create_file_share(
 def update_file_share(
     file_id: uuid.UUID,
     payload: ShareUpsertRequest,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> ShareRead:
     try:
@@ -188,7 +188,7 @@ def update_file_share(
 @router.delete("/{file_id}/share", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file_share(
     file_id: uuid.UUID,
-    current_user: User = current_user_dependency,
+    current_user: AuthenticatedUser = current_user_dependency,
     use_case: FileUseCase = file_use_case_dependency,
 ) -> Response:
     try:

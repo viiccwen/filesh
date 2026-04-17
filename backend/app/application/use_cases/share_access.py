@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import uuid
 
+from app.application.dto import (
+    AuthenticatedUser,
+    FileDTO,
+    FolderContentsDTO,
+    FolderDTO,
+    ShareAccessDTO,
+    SharedFolderContentsDTO,
+)
 from app.application.shared.files import delete_file, download_file_content
 from app.application.shared.folders import delete_folder
 from app.application.shared.presenters import (
@@ -21,10 +29,8 @@ from app.application.shared.shares import (
 )
 from app.core.events import EventPublisher
 from app.core.storage import ObjectStorage
-from app.models import PermissionLevel, ResourceType, User
-from app.schemas.file import FileRead
-from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
-from app.schemas.share import ShareAccessResponse, SharedFolderContentsResponse
+from app.domain.enums import PermissionLevel, ResourceType
+from app.schemas.folder import FolderCreateRequest
 
 
 class ShareAccessUseCase:
@@ -38,7 +44,7 @@ class ShareAccessUseCase:
         self.object_storage = object_storage
         self.event_publisher = event_publisher
 
-    def access_share(self, token: str, current_user: User | None) -> ShareAccessResponse:
+    def access_share(self, token: str, current_user: AuthenticatedUser | None) -> ShareAccessDTO:
         share_link = resolve_share_by_token(self.session, token)
         authorize_share_permission(share_link, current_user, PermissionLevel.VIEW_DOWNLOAD)
         resource = get_shared_resource(self.session, share_link)
@@ -47,8 +53,8 @@ class ShareAccessUseCase:
     def shared_folder_contents(
         self,
         token: str,
-        current_user: User | None,
-    ) -> SharedFolderContentsResponse:
+        current_user: AuthenticatedUser | None,
+    ) -> SharedFolderContentsDTO:
         share_link = resolve_share_by_token(self.session, token)
         folder, folders, files = get_shared_folder_contents_for_target(
             self.session,
@@ -65,7 +71,7 @@ class ShareAccessUseCase:
     def download_shared_file(
         self,
         token: str,
-        current_user: User | None,
+        current_user: AuthenticatedUser | None,
     ) -> tuple[bytes, str, str]:
         share_link = resolve_share_by_token(self.session, token)
         authorize_share_permission(share_link, current_user, PermissionLevel.VIEW_DOWNLOAD)
@@ -81,8 +87,8 @@ class ShareAccessUseCase:
         self,
         token: str,
         folder_id: uuid.UUID,
-        current_user: User | None,
-    ) -> FolderContentsResponse:
+        current_user: AuthenticatedUser | None,
+    ) -> FolderContentsDTO:
         share_link = resolve_share_by_token(self.session, token)
         folder, folders, files = get_shared_folder_contents_for_target(
             self.session,
@@ -96,11 +102,11 @@ class ShareAccessUseCase:
         self,
         token: str,
         payload: FolderCreateRequest,
-        current_user: User | None,
-    ) -> FolderRead:
+        current_user: AuthenticatedUser | None,
+    ) -> FolderDTO:
         share_link = resolve_share_by_token(self.session, token)
         folder = create_shared_subfolder(self.session, share_link, current_user, payload)
-        return FolderRead.model_validate(folder)
+        return FolderDTO.model_validate(folder)
 
     def upload_shared_file(
         self,
@@ -108,9 +114,9 @@ class ShareAccessUseCase:
         filename: str,
         data: bytes,
         content_type: str | None,
-        current_user: User | None,
+        current_user: AuthenticatedUser | None,
         folder_id: uuid.UUID | None = None,
-    ) -> FileRead:
+    ) -> FileDTO:
         share_link = resolve_share_by_token(self.session, token)
         file = create_shared_file(
             self.session,
@@ -122,13 +128,13 @@ class ShareAccessUseCase:
             self.object_storage,
             folder_id,
         )
-        return FileRead.model_validate(file)
+        return FileDTO.model_validate(file)
 
     def delete_shared_folder(
         self,
         token: str,
         folder_id: uuid.UUID,
-        current_user: User | None,
+        current_user: AuthenticatedUser | None,
     ) -> None:
         share_link = resolve_share_by_token(self.session, token)
         authorize_share_permission(share_link, current_user, PermissionLevel.DELETE)
@@ -139,8 +145,8 @@ class ShareAccessUseCase:
         self,
         token: str,
         file_id: uuid.UUID,
-        current_user: User | None,
-    ) -> FileRead:
+        current_user: AuthenticatedUser | None,
+    ) -> FileDTO:
         share_link = resolve_share_by_token(self.session, token)
         file, _ = resolve_shared_file_action(
             self.session,
@@ -149,13 +155,13 @@ class ShareAccessUseCase:
             current_user,
             PermissionLevel.VIEW_DOWNLOAD,
         )
-        return FileRead.model_validate(file)
+        return FileDTO.model_validate(file)
 
     def download_shared_file_from_folder(
         self,
         token: str,
         file_id: uuid.UUID,
-        current_user: User | None,
+        current_user: AuthenticatedUser | None,
     ) -> tuple[bytes, str, str]:
         share_link = resolve_share_by_token(self.session, token)
         file, _ = resolve_shared_file_action(
@@ -172,7 +178,7 @@ class ShareAccessUseCase:
         self,
         token: str,
         file_id: uuid.UUID,
-        current_user: User | None,
+        current_user: AuthenticatedUser | None,
     ) -> None:
         share_link = resolve_share_by_token(self.session, token)
         file, _ = resolve_shared_file_action(

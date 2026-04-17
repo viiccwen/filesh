@@ -5,6 +5,7 @@ import uuid
 import jwt
 from sqlalchemy.orm import Session
 
+from app.application.dto import AccessTokenDTO, AuthenticatedUser, MessageDTO, UserDTO
 from app.application.shared.auth import (
     authenticate_user,
     build_auth_response,
@@ -15,18 +16,12 @@ from app.application.shared.auth import (
 from app.core.events import EventPublisher
 from app.core.security import clear_refresh_cookie, decode_token, set_refresh_cookie
 from app.domain import AuthenticationError
-from app.models import User
 from app.repositories import users as user_repository
 from app.schemas.auth import (
-    AccessTokenResponse,
     ChangePasswordRequest,
-    ChangePasswordResponse,
-    DeleteAccountResponse,
     LoginRequest,
-    LogoutResponse,
     RegisterRequest,
 )
-from app.schemas.user import UserRead
 
 
 class AuthUseCase:
@@ -34,15 +29,15 @@ class AuthUseCase:
         self.session = session
         self.event_publisher = event_publisher
 
-    def register(self, payload: RegisterRequest) -> UserRead:
+    def register(self, payload: RegisterRequest) -> UserDTO:
         user = register_user(self.session, payload)
-        return UserRead.model_validate(user)
+        return UserDTO.model_validate(user)
 
-    def login(self, payload: LoginRequest) -> tuple[AccessTokenResponse, str]:
+    def login(self, payload: LoginRequest) -> tuple[AccessTokenDTO, str]:
         user = authenticate_user(self.session, payload)
         return build_auth_response(user)
 
-    def refresh_access_token(self, refresh_token: str | None) -> tuple[AccessTokenResponse, str]:
+    def refresh_access_token(self, refresh_token: str | None) -> tuple[AccessTokenDTO, str]:
         if refresh_token is None:
             raise AuthenticationError("Refresh token missing")
         try:
@@ -56,20 +51,26 @@ class AuthUseCase:
             raise AuthenticationError("User not found")
         return build_auth_response(user)
 
-    def logout(self) -> LogoutResponse:
-        return LogoutResponse(message="Logged out")
+    def logout(self) -> MessageDTO:
+        return MessageDTO(message="Logged out")
 
     def change_password(
         self,
-        current_user: User,
+        current_user: AuthenticatedUser,
         payload: ChangePasswordRequest,
-    ) -> ChangePasswordResponse:
-        change_user_password(self.session, current_user, payload)
-        return ChangePasswordResponse(message="Password updated")
+    ) -> MessageDTO:
+        user = user_repository.get_active_user_by_id(self.session, current_user.id)
+        if user is None:
+            raise AuthenticationError("User not found")
+        change_user_password(self.session, user, payload)
+        return MessageDTO(message="Password updated")
 
-    def delete_account(self, current_user: User) -> DeleteAccountResponse:
-        delete_user_account(self.session, current_user, self.event_publisher)
-        return DeleteAccountResponse(message="Account deleted")
+    def delete_account(self, current_user: AuthenticatedUser) -> MessageDTO:
+        user = user_repository.get_active_user_by_id(self.session, current_user.id)
+        if user is None:
+            raise AuthenticationError("User not found")
+        delete_user_account(self.session, user, self.event_publisher)
+        return MessageDTO(message="Account deleted")
 
     @staticmethod
     def set_refresh_cookie(response, refresh_token: str) -> None:

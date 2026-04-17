@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from app.application.dto import AuthenticatedUser, ShareReadDTO
 from app.application.shared.files import create_file_in_folder, get_file_for_owner
 from app.application.shared.folders import (
     ROOT_FOLDER_NAME,
@@ -21,21 +22,18 @@ from app.domain import (
     NotFoundError,
     ValidationError,
 )
+from app.domain.enums import PermissionLevel, ResourceType, ShareMode
 from app.models import (
     File,
     Folder,
-    PermissionLevel,
-    ResourceType,
     ShareInvitation,
     ShareLink,
-    ShareMode,
-    User,
 )
 from app.repositories import files as file_repository
 from app.repositories import folders as folder_repository
 from app.repositories import shares as share_repository
 from app.schemas.folder import FolderCreateRequest
-from app.schemas.share import ShareRead, ShareUpsertRequest
+from app.schemas.share import ShareUpsertRequest
 
 PERMISSION_RANK = {
     PermissionLevel.VIEW_DOWNLOAD: 1,
@@ -71,13 +69,13 @@ def get_active_share_for_resource(
 
 def validate_share_resource(
     session: Session,
-    owner: User,
+    owner_id: uuid.UUID,
     resource_type: ResourceType,
     resource_id: uuid.UUID,
 ) -> File | Folder:
     if resource_type is ResourceType.FILE:
-        return get_file_for_owner(session, resource_id, owner.id)
-    return get_folder_for_owner(session, resource_id, owner.id)
+        return get_file_for_owner(session, resource_id, owner_id)
+    return get_folder_for_owner(session, resource_id, owner_id)
 
 
 def resolve_invitations(session: Session, emails: list[str]) -> list[tuple[str, uuid.UUID | None]]:
@@ -103,8 +101,8 @@ def assert_share_payload(payload: ShareUpsertRequest) -> None:
         raise ValidationError("Invitation emails are only allowed for email invitation mode")
 
 
-def to_share_read(share_link: ShareLink, raw_token: str) -> ShareRead:
-    return ShareRead(
+def to_share_read(share_link: ShareLink, raw_token: str) -> ShareReadDTO:
+    return ShareReadDTO(
         id=share_link.id,
         resource_type=share_link.resource_type,
         resource_id=share_link.resource_id,
@@ -119,12 +117,12 @@ def to_share_read(share_link: ShareLink, raw_token: str) -> ShareRead:
 
 def create_share(
     session: Session,
-    owner: User,
+    owner: AuthenticatedUser,
     resource_type: ResourceType,
     resource_id: uuid.UUID,
     payload: ShareUpsertRequest,
-) -> ShareRead:
-    validate_share_resource(session, owner, resource_type, resource_id)
+) -> ShareReadDTO:
+    validate_share_resource(session, owner.id, resource_type, resource_id)
     assert_share_payload(payload)
 
     if get_active_share_for_resource(session, resource_type, resource_id) is not None:
@@ -165,12 +163,12 @@ def create_share(
 
 def update_share(
     session: Session,
-    owner: User,
+    owner: AuthenticatedUser,
     resource_type: ResourceType,
     resource_id: uuid.UUID,
     payload: ShareUpsertRequest,
-) -> ShareRead:
-    validate_share_resource(session, owner, resource_type, resource_id)
+) -> ShareReadDTO:
+    validate_share_resource(session, owner.id, resource_type, resource_id)
     assert_share_payload(payload)
 
     share_link = get_active_share_for_resource(session, resource_type, resource_id)
@@ -204,11 +202,11 @@ def update_share(
 
 def get_share(
     session: Session,
-    owner: User,
+    owner: AuthenticatedUser,
     resource_type: ResourceType,
     resource_id: uuid.UUID,
-) -> ShareRead:
-    validate_share_resource(session, owner, resource_type, resource_id)
+) -> ShareReadDTO:
+    validate_share_resource(session, owner.id, resource_type, resource_id)
     share_link = get_active_share_for_resource(session, resource_type, resource_id)
     if share_link is None:
         raise NotFoundError("Active share link not found")
@@ -217,11 +215,11 @@ def get_share(
 
 def revoke_share(
     session: Session,
-    owner: User,
+    owner: AuthenticatedUser,
     resource_type: ResourceType,
     resource_id: uuid.UUID,
 ) -> None:
-    validate_share_resource(session, owner, resource_type, resource_id)
+    validate_share_resource(session, owner.id, resource_type, resource_id)
     share_link = get_active_share_for_resource(session, resource_type, resource_id)
     if share_link is None:
         raise NotFoundError("Active share link not found")
@@ -238,7 +236,7 @@ def resolve_share_by_token(session: Session, token: str) -> ShareLink:
     return share_link
 
 
-def authorize_share_access(share_link: ShareLink, requester: User | None) -> None:
+def authorize_share_access(share_link: ShareLink, requester: AuthenticatedUser | None) -> None:
     if share_link.share_mode is ShareMode.GUEST:
         return
     if requester is None:
@@ -253,7 +251,7 @@ def authorize_share_access(share_link: ShareLink, requester: User | None) -> Non
 
 def authorize_share_permission(
     share_link: ShareLink,
-    requester: User | None,
+    requester: AuthenticatedUser | None,
     required_permission: PermissionLevel,
 ) -> None:
     authorize_share_access(share_link, requester)
@@ -337,7 +335,7 @@ def resolve_shared_file_action(
     session: Session,
     share_link: ShareLink,
     file_id: uuid.UUID,
-    requester: User | None,
+    requester: AuthenticatedUser | None,
     required_permission: PermissionLevel,
 ) -> tuple[File, ShareLink]:
     file = get_shared_file_target(session, share_link, file_id)
@@ -349,7 +347,7 @@ def resolve_shared_file_action(
 def get_shared_folder_contents_for_target(
     session: Session,
     share_link: ShareLink,
-    requester: User | None,
+    requester: AuthenticatedUser | None,
     folder_id: uuid.UUID | None = None,
 ) -> tuple[Folder, list[Folder], list[File]]:
     authorize_share_permission(share_link, requester, PermissionLevel.VIEW_DOWNLOAD)
@@ -360,7 +358,7 @@ def get_shared_folder_contents_for_target(
 def create_shared_subfolder(
     session: Session,
     share_link: ShareLink,
-    requester: User | None,
+    requester: AuthenticatedUser | None,
     payload: FolderCreateRequest,
 ) -> Folder:
     authorize_share_permission(share_link, requester, PermissionLevel.UPLOAD)
@@ -369,7 +367,7 @@ def create_shared_subfolder(
         raise ValidationError("Folder name is reserved")
     return create_folder(
         session,
-        share_link.owner,
+        share_link.owner_id,
         FolderCreateRequest(name=payload.name, parent_id=parent_folder.id),
     )
 
@@ -377,7 +375,7 @@ def create_shared_subfolder(
 def create_shared_file(
     session: Session,
     share_link: ShareLink,
-    requester: User | None,
+    requester: AuthenticatedUser | None,
     filename: str,
     data: bytes,
     content_type: str | None,
@@ -388,7 +386,7 @@ def create_shared_file(
     target_folder = get_shared_folder_target(session, share_link, folder_id)
     return create_file_in_folder(
         session,
-        share_link.owner,
+        share_link.owner_id,
         target_folder.id,
         filename,
         data,

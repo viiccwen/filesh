@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
 from app.core.storage import ObjectStorage
 from app.domain import ConflictError, NotFoundError, ValidationError
-from app.models import File, FileStatus, UploadSession, UploadSessionStatus, User
+from app.models import File, FileStatus, UploadSession, UploadSessionStatus
 from app.repositories import files as file_repository
 from app.schemas.file import UploadFailRequest, UploadFinalizeRequest, UploadInitRequest
 
@@ -57,7 +57,7 @@ def build_object_key(
 
 def create_file_in_folder(
     session: Session,
-    owner: User,
+    owner_id: uuid.UUID,
     folder_id: uuid.UUID,
     original_filename: str,
     data: bytes,
@@ -65,10 +65,10 @@ def create_file_in_folder(
     storage: ObjectStorage,
     uploaded_by: uuid.UUID | None = None,
 ) -> File:
-    folder = get_folder_for_owner(session, folder_id, owner.id)
+    folder = get_folder_for_owner(session, folder_id, owner_id)
     resolved_filename = resolve_filename_collision(session, folder.id, original_filename)
     object_id = uuid.uuid4()
-    object_key = build_object_key(owner.id, folder.id, object_id, resolved_filename)
+    object_key = build_object_key(owner_id, folder.id, object_id, resolved_filename)
     extension = split_filename(resolved_filename)[1].lstrip(".") or None
 
     storage.put_object(
@@ -79,7 +79,7 @@ def create_file_in_folder(
     )
 
     file = File(
-        owner_id=owner.id,
+        owner_id=owner_id,
         folder_id=folder.id,
         original_filename=original_filename,
         stored_filename=resolved_filename,
@@ -90,7 +90,7 @@ def create_file_in_folder(
         object_key=object_key,
         storage_bucket=settings.minio_bucket,
         status=FileStatus.ACTIVE,
-        uploaded_by=uploaded_by or owner.id,
+        uploaded_by=uploaded_by or owner_id,
     )
     file_repository.add_file(session, file)
 
@@ -104,15 +104,15 @@ def create_file_in_folder(
     return file
 
 
-def init_upload(session: Session, owner: User, payload: UploadInitRequest) -> UploadSession:
-    folder = get_folder_for_owner(session, payload.folder_id, owner.id)
+def init_upload(session: Session, owner_id: uuid.UUID, payload: UploadInitRequest) -> UploadSession:
+    folder = get_folder_for_owner(session, payload.folder_id, owner_id)
     resolved_filename = resolve_filename_collision(session, folder.id, payload.filename)
     upload_session = UploadSession(
-        owner_id=owner.id,
+        owner_id=owner_id,
         folder_id=folder.id,
         original_filename=payload.filename,
         resolved_filename=resolved_filename,
-        object_key=build_object_key(owner.id, folder.id, uuid.uuid4(), resolved_filename),
+        object_key=build_object_key(owner_id, folder.id, uuid.uuid4(), resolved_filename),
         content_type=payload.content_type,
         expected_size=payload.expected_size,
         status=UploadSessionStatus.PENDING,
@@ -120,7 +120,7 @@ def init_upload(session: Session, owner: User, payload: UploadInitRequest) -> Up
     file_repository.add_upload_session(session, upload_session)
     session.flush()
     upload_session.object_key = build_object_key(
-        owner.id,
+        owner_id,
         folder.id,
         upload_session.id,
         resolved_filename,
@@ -145,8 +145,8 @@ def get_upload_session_for_owner(
     return upload_session
 
 
-def finalize_upload(session: Session, owner: User, payload: UploadFinalizeRequest) -> File:
-    upload_session = get_upload_session_for_owner(session, payload.upload_session_id, owner.id)
+def finalize_upload(session: Session, owner_id: uuid.UUID, payload: UploadFinalizeRequest) -> File:
+    upload_session = get_upload_session_for_owner(session, payload.upload_session_id, owner_id)
     if upload_session.status is UploadSessionStatus.FAILED:
         raise ConflictError("Upload session already failed")
     if upload_session.status is UploadSessionStatus.PENDING:
@@ -156,7 +156,7 @@ def finalize_upload(session: Session, owner: User, payload: UploadFinalizeReques
 
     extension = split_filename(upload_session.resolved_filename)[1].lstrip(".") or None
     file = File(
-        owner_id=owner.id,
+        owner_id=owner_id,
         folder_id=upload_session.folder_id,
         original_filename=upload_session.original_filename,
         stored_filename=upload_session.resolved_filename,
@@ -167,7 +167,7 @@ def finalize_upload(session: Session, owner: User, payload: UploadFinalizeReques
         object_key=upload_session.object_key,
         storage_bucket=settings.minio_bucket,
         status=FileStatus.ACTIVE,
-        uploaded_by=owner.id,
+        uploaded_by=owner_id,
     )
     file_repository.add_file(session, file)
 
@@ -187,13 +187,13 @@ def finalize_upload(session: Session, owner: User, payload: UploadFinalizeReques
 
 def upload_content(
     session: Session,
-    owner: User,
+    owner_id: uuid.UUID,
     upload_session_id: uuid.UUID,
     data: bytes,
     content_type: str | None,
     storage: ObjectStorage,
 ) -> UploadSession:
-    upload_session = get_upload_session_for_owner(session, upload_session_id, owner.id)
+    upload_session = get_upload_session_for_owner(session, upload_session_id, owner_id)
     if upload_session.status is UploadSessionStatus.FAILED:
         raise ConflictError("Upload session already failed")
     if upload_session.status is UploadSessionStatus.FINALIZED:
@@ -217,11 +217,11 @@ def upload_content(
 
 def fail_upload(
     session: Session,
-    owner: User,
+    owner_id: uuid.UUID,
     payload: UploadFailRequest,
     event_publisher: EventPublisher,
 ) -> UploadSession:
-    upload_session = get_upload_session_for_owner(session, payload.upload_session_id, owner.id)
+    upload_session = get_upload_session_for_owner(session, payload.upload_session_id, owner_id)
     if upload_session.status is UploadSessionStatus.FINALIZED:
         raise ConflictError("Upload session already finalized")
 

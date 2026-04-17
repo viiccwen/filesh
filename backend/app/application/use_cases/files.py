@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+from app.application.dto import AuthenticatedUser, FileDTO, ShareReadDTO, UploadInitDTO
 from app.application.shared.files import (
     delete_file,
     download_file_content,
@@ -17,17 +18,15 @@ from app.application.shared.presenters import to_upload_init_response
 from app.application.shared.shares import create_share, get_share, revoke_share, update_share
 from app.core.events import EventPublisher
 from app.core.storage import ObjectStorage
-from app.models import ResourceType, User
+from app.domain.enums import ResourceType
 from app.schemas.file import (
     FileMoveRequest,
-    FileRead,
     FileRenameRequest,
     UploadFailRequest,
     UploadFinalizeRequest,
     UploadInitRequest,
-    UploadInitResponse,
 )
-from app.schemas.share import ShareRead, ShareUpsertRequest
+from app.schemas.share import ShareUpsertRequest
 
 
 class FileUseCase:
@@ -41,81 +40,93 @@ class FileUseCase:
         self.object_storage = object_storage
         self.event_publisher = event_publisher
 
-    def init_upload(self, current_user: User, payload: UploadInitRequest) -> UploadInitResponse:
-        upload_session = init_upload(self.session, current_user, payload)
+    def init_upload(
+        self,
+        current_user: AuthenticatedUser,
+        payload: UploadInitRequest,
+    ) -> UploadInitDTO:
+        upload_session = init_upload(self.session, current_user.id, payload)
         return to_upload_init_response(upload_session)
 
-    def finalize_upload(self, current_user: User, payload: UploadFinalizeRequest) -> FileRead:
-        file = finalize_upload(self.session, current_user, payload)
-        return FileRead.model_validate(file)
+    def finalize_upload(
+        self,
+        current_user: AuthenticatedUser,
+        payload: UploadFinalizeRequest,
+    ) -> FileDTO:
+        file = finalize_upload(self.session, current_user.id, payload)
+        return FileDTO.model_validate(file)
 
     def upload_content(
         self,
         upload_session_id: uuid.UUID,
-        current_user: User,
+        current_user: AuthenticatedUser,
         data: bytes,
         content_type: str | None,
     ) -> None:
         upload_content(
             self.session,
-            current_user,
+            current_user.id,
             upload_session_id,
             data,
             content_type,
             self.object_storage,
         )
 
-    def fail_upload(self, current_user: User, payload: UploadFailRequest) -> None:
-        fail_upload(self.session, current_user, payload, self.event_publisher)
+    def fail_upload(self, current_user: AuthenticatedUser, payload: UploadFailRequest) -> None:
+        fail_upload(self.session, current_user.id, payload, self.event_publisher)
 
-    def get(self, file_id: uuid.UUID, current_user: User) -> FileRead:
+    def get(self, file_id: uuid.UUID, current_user: AuthenticatedUser) -> FileDTO:
         file = get_file_for_owner(self.session, file_id, current_user.id)
-        return FileRead.model_validate(file)
+        return FileDTO.model_validate(file)
 
-    def download(self, file_id: uuid.UUID, current_user: User) -> tuple[bytes, str, str]:
+    def download(
+        self,
+        file_id: uuid.UUID,
+        current_user: AuthenticatedUser,
+    ) -> tuple[bytes, str, str]:
         file = get_file_for_owner(self.session, file_id, current_user.id)
         data = download_file_content(self.object_storage, file)
         return data, (file.content_type or "application/octet-stream"), file.stored_filename
 
-    def delete(self, file_id: uuid.UUID, current_user: User) -> None:
+    def delete(self, file_id: uuid.UUID, current_user: AuthenticatedUser) -> None:
         delete_file(self.session, file_id, current_user.id, self.event_publisher)
 
     def rename(
         self,
         file_id: uuid.UUID,
-        current_user: User,
+        current_user: AuthenticatedUser,
         payload: FileRenameRequest,
-    ) -> FileRead:
+    ) -> FileDTO:
         file = rename_file(self.session, file_id, current_user.id, payload.filename)
-        return FileRead.model_validate(file)
+        return FileDTO.model_validate(file)
 
     def move(
         self,
         file_id: uuid.UUID,
-        current_user: User,
+        current_user: AuthenticatedUser,
         payload: FileMoveRequest,
-    ) -> FileRead:
+    ) -> FileDTO:
         file = move_file(self.session, file_id, current_user.id, payload.target_folder_id)
-        return FileRead.model_validate(file)
+        return FileDTO.model_validate(file)
 
-    def get_share(self, file_id: uuid.UUID, current_user: User) -> ShareRead:
+    def get_share(self, file_id: uuid.UUID, current_user: AuthenticatedUser) -> ShareReadDTO:
         return get_share(self.session, current_user, ResourceType.FILE, file_id)
 
     def create_share(
         self,
         file_id: uuid.UUID,
-        current_user: User,
+        current_user: AuthenticatedUser,
         payload: ShareUpsertRequest,
-    ) -> ShareRead:
+    ) -> ShareReadDTO:
         return create_share(self.session, current_user, ResourceType.FILE, file_id, payload)
 
     def update_share(
         self,
         file_id: uuid.UUID,
-        current_user: User,
+        current_user: AuthenticatedUser,
         payload: ShareUpsertRequest,
-    ) -> ShareRead:
+    ) -> ShareReadDTO:
         return update_share(self.session, current_user, ResourceType.FILE, file_id, payload)
 
-    def revoke_share(self, file_id: uuid.UUID, current_user: User) -> None:
+    def revoke_share(self, file_id: uuid.UUID, current_user: AuthenticatedUser) -> None:
         revoke_share(self.session, current_user, ResourceType.FILE, file_id)

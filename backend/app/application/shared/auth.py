@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.application.dto import AccessTokenDTO, UserDTO
 from app.application.shared.folders import create_root_folder
 from app.core.config import settings
 from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
@@ -14,13 +15,7 @@ from app.core.security import (
 from app.domain import AuthenticationError, AuthorizationError, ConflictError, ValidationError
 from app.models import User
 from app.repositories import users as user_repository
-from app.schemas.auth import (
-    AccessTokenResponse,
-    ChangePasswordRequest,
-    LoginRequest,
-    RegisterRequest,
-)
-from app.schemas.user import UserRead
+from app.schemas.auth import ChangePasswordRequest, LoginRequest, RegisterRequest
 
 
 def register_user(session: Session, payload: RegisterRequest) -> User:
@@ -43,7 +38,7 @@ def register_user(session: Session, payload: RegisterRequest) -> User:
     )
     user_repository.add_user(session, user)
     session.flush()
-    create_root_folder(session, user)
+    create_root_folder(session, user.id)
     session.commit()
     session.refresh(user)
     return user
@@ -60,11 +55,11 @@ def authenticate_user(session: Session, payload: LoginRequest) -> User:
     return user
 
 
-def build_auth_response(user: User) -> tuple[AccessTokenResponse, str]:
+def build_auth_response(user: User) -> tuple[AccessTokenDTO, str]:
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
     return (
-        AccessTokenResponse(access_token=access_token, user=UserRead.model_validate(user)),
+        AccessTokenDTO(access_token=access_token, user=UserDTO.model_validate(user)),
         refresh_token,
     )
 

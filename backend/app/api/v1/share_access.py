@@ -7,11 +7,11 @@ from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.api.errors import to_http_exception
+from app.application.dto import AuthenticatedUser
 from app.application.use_cases.share_access import ShareAccessUseCase
 from app.dependencies.auth import get_optional_current_user
 from app.dependencies.use_cases import get_share_access_use_case
 from app.domain import AppError
-from app.models import User
 from app.schemas.file import FileRead
 from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
 from app.schemas.share import ShareAccessResponse, SharedFolderContentsResponse
@@ -26,7 +26,7 @@ shared_upload_folder_dependency = Form()
 @router.get("/s/{token}", response_model=ShareAccessResponse)
 def access_share(
     token: str,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> ShareAccessResponse:
     try:
@@ -38,7 +38,7 @@ def access_share(
 @router.get("/s/{token}/contents", response_model=SharedFolderContentsResponse)
 def access_shared_folder_contents(
     token: str,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> SharedFolderContentsResponse:
     try:
@@ -50,7 +50,7 @@ def access_shared_folder_contents(
 @router.get("/s/{token}/download")
 def download_shared_file(
     token: str,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> StreamingResponse:
     try:
@@ -68,7 +68,7 @@ def download_shared_file(
 def access_nested_shared_folder_contents(
     token: str,
     folder_id: uuid.UUID,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> FolderContentsResponse:
     try:
@@ -81,7 +81,7 @@ def access_nested_shared_folder_contents(
 def create_shared_folder(
     token: str,
     payload: FolderCreateRequest,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> FolderRead:
     try:
@@ -95,7 +95,7 @@ async def upload_shared_file(
     token: str,
     file: Annotated[UploadFile, shared_upload_file_dependency],
     folder_id: Annotated[uuid.UUID | None, shared_upload_folder_dependency] = None,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> FileRead:
     data = await file.read()
@@ -116,7 +116,7 @@ async def upload_shared_file(
 def remove_shared_folder(
     token: str,
     folder_id: uuid.UUID,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> Response:
     try:
@@ -130,7 +130,7 @@ def remove_shared_folder(
 def access_shared_file_metadata(
     token: str,
     file_id: uuid.UUID,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> FileRead:
     try:
@@ -143,7 +143,7 @@ def access_shared_file_metadata(
 def download_shared_file_from_folder(
     token: str,
     file_id: uuid.UUID,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> StreamingResponse:
     try:
@@ -165,7 +165,7 @@ def download_shared_file_from_folder(
 def remove_shared_file(
     token: str,
     file_id: uuid.UUID,
-    current_user: User | None = optional_user_dependency,
+    current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
 ) -> Response:
     try:

@@ -5,12 +5,12 @@ import uuid
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.application.dto import AuthenticatedUser
 from app.core.db import get_db_session
 from app.core.security import decode_token
-from app.models import User
+from app.repositories import users as user_repository
 
 bearer_scheme = HTTPBearer(auto_error=False)
 db_session_dependency = Depends(get_db_session)
@@ -20,7 +20,7 @@ bearer_dependency = Depends(bearer_scheme)
 def resolve_current_user(
     session: Session = db_session_dependency,
     credentials: HTTPAuthorizationCredentials | None = bearer_dependency,
-) -> User | None:
+) -> AuthenticatedUser | None:
     if credentials is None:
         return None
 
@@ -33,17 +33,17 @@ def resolve_current_user(
             detail="Invalid access token",
         ) from exc
 
-    user = session.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
+    user = user_repository.get_active_user_by_id(session, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    return user
+    return AuthenticatedUser.model_validate(user)
 
 
 def get_current_user(
     session: Session = db_session_dependency,
     credentials: HTTPAuthorizationCredentials | None = bearer_dependency,
-) -> User:
+) -> AuthenticatedUser:
     user = resolve_current_user(session, credentials)
     if user is None:
         raise HTTPException(
@@ -56,7 +56,7 @@ def get_current_user(
 def get_optional_current_user(
     session: Session = db_session_dependency,
     credentials: HTTPAuthorizationCredentials | None = bearer_dependency,
-) -> User | None:
+) -> AuthenticatedUser | None:
     if credentials is None:
         return None
     return resolve_current_user(session, credentials)

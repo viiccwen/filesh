@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import FileStatus, UploadSessionStatus
+from app.domain.enums import FileStatus, UploadSessionStatus
 
 
 class FileSummary(BaseModel):
