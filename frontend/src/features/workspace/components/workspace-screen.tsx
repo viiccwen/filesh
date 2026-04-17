@@ -7,22 +7,36 @@ import {
   useState,
 } from "react";
 import {
+  ArrowRightLeftIcon,
   ArrowDownToLineIcon,
   ChevronRightIcon,
   FolderIcon,
+  FolderInputIcon,
   FolderOpenIcon,
   FolderPlusIcon,
   Link2Icon,
   Loader2Icon,
   LogOutIcon,
   MoreHorizontalIcon,
+  PencilIcon,
   SearchIcon,
   SparklesIcon,
+  TrashIcon,
   UploadIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -48,6 +62,14 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Empty,
   EmptyDescription,
@@ -97,10 +119,16 @@ import {
   ApiError,
   createFolder,
   createFolderShare,
+  deleteFile,
+  deleteFolder,
   downloadFile,
   getFolderContents,
   getFolderShare,
   getRootFolder,
+  moveFile,
+  moveFolder,
+  renameFile,
+  renameFolder,
   revokeFolderShare,
   searchResources,
   updateFolderShare,
@@ -114,6 +142,26 @@ type FolderNode = {
 };
 
 type SortKey = "name" | "updated_at" | "size" | "type";
+
+type ActionResource =
+  | {
+      kind: "folder";
+      id: string;
+      name: string;
+      parentId: string | null;
+      pathCache: string | null;
+    }
+  | {
+      kind: "file";
+      id: string;
+      name: string;
+      parentId: string;
+    };
+
+type EditDialogState =
+  | { mode: "rename"; resource: ActionResource }
+  | { mode: "move"; resource: ActionResource }
+  | null;
 
 const PAGE_SIZE_OPTIONS = ["8", "16", "24"];
 
@@ -139,6 +187,12 @@ export function WorkspaceScreen() {
   const [uploading, setUploading] = useState(false);
   const [sharePending, setSharePending] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [editDialogState, setEditDialogState] = useState<EditDialogState>(null);
+  const [deleteDialogResource, setDeleteDialogResource] =
+    useState<ActionResource | null>(null);
+  const [actionPending, setActionPending] = useState(false);
+  const [resourceName, setResourceName] = useState("");
+  const [moveTargetId, setMoveTargetId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -219,9 +273,68 @@ export function WorkspaceScreen() {
     return chain;
   }, [contents, folderTree]);
 
+  const moveTargets = useMemo(() => {
+    const activeResource = editDialogState?.resource;
+    const currentFolderPath =
+      activeResource?.kind === "folder" ? activeResource.pathCache : null;
+
+    return Object.values(folderTree)
+      .map((node) => node.folder)
+      .filter((folder) => {
+        if (!activeResource) {
+          return true;
+        }
+
+        if (activeResource.kind === "file") {
+          return folder.id !== activeResource.parentId;
+        }
+
+        if (folder.id === activeResource.id) {
+          return false;
+        }
+
+        if (
+          currentFolderPath &&
+          folder.path_cache &&
+          (folder.path_cache === currentFolderPath ||
+            folder.path_cache.startsWith(`${currentFolderPath}/`))
+        ) {
+          return false;
+        }
+
+        return true;
+      })
+      .sort((left, right) =>
+        (left.path_cache ?? left.name).localeCompare(
+          right.path_cache ?? right.name,
+          undefined,
+          { sensitivity: "base" },
+        ),
+      );
+  }, [editDialogState, folderTree]);
+
+  useEffect(() => {
+    if (!editDialogState) {
+      setResourceName("");
+      setMoveTargetId("");
+      return;
+    }
+
+    setResourceName(editDialogState.resource.name);
+
+    if (editDialogState.mode === "move") {
+      setMoveTargetId(moveTargets[0]?.id ?? "");
+      return;
+    }
+
+    setMoveTargetId("");
+  }, [editDialogState, moveTargets]);
+
   if (!accessToken || !user) {
     return null;
   }
+
+  const currentFolderId = contents?.folder.id ?? "";
 
   async function loadWorkspace(token: string, folderId?: string) {
     setWorkspacePending(true);
@@ -478,8 +591,260 @@ export function WorkspaceScreen() {
     uploadInputRef.current?.click();
   }
 
+  function toFolderActionResource(folder: Folder): ActionResource {
+    return {
+      kind: "folder",
+      id: folder.id,
+      name: folder.name,
+      parentId: folder.parent_id,
+      pathCache: folder.path_cache,
+    };
+  }
+
+  function toFileActionResource(
+    file: FileSummary,
+    parentId: string,
+  ): ActionResource {
+    return {
+      kind: "file",
+      id: file.id,
+      name: file.stored_filename,
+      parentId,
+    };
+  }
+
+  async function handleSaveResourceAction() {
+    const token = accessToken;
+    if (!editDialogState || !contents || !token) {
+      return;
+    }
+
+    setActionPending(true);
+
+    try {
+      if (editDialogState.mode === "rename") {
+        if (!resourceName.trim()) {
+          toast.error("Enter a valid name.");
+          return;
+        }
+
+        if (editDialogState.resource.kind === "folder") {
+          await renameFolder(token, editDialogState.resource.id, {
+            name: resourceName.trim(),
+          });
+          toast.success("Folder renamed");
+        } else {
+          await renameFile(token, editDialogState.resource.id, {
+            filename: resourceName.trim(),
+          });
+          toast.success("File renamed");
+        }
+      } else {
+        if (!moveTargetId) {
+          toast.error("Choose a destination folder.");
+          return;
+        }
+
+        if (editDialogState.resource.kind === "folder") {
+          await moveFolder(token, editDialogState.resource.id, {
+            target_parent_id: moveTargetId,
+          });
+          toast.success("Folder moved");
+        } else {
+          await moveFile(token, editDialogState.resource.id, {
+            target_folder_id: moveTargetId,
+          });
+          toast.success("File moved");
+        }
+      }
+
+      setEditDialogState(null);
+      await loadWorkspace(token, contents.folder.id);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  async function handleDeleteResource() {
+    const token = accessToken;
+    const resource = deleteDialogResource;
+    if (!resource || !token) {
+      return;
+    }
+
+    setActionPending(true);
+
+    try {
+      if (resource.kind === "folder") {
+        await deleteFolder(token, resource.id);
+        toast.success("Folder deleted");
+      } else {
+        await deleteFile(token, resource.id);
+        toast.success("File deleted");
+      }
+
+      setDeleteDialogResource(null);
+
+      if (
+        resource.kind === "folder" &&
+        contents?.folder.id === resource.id &&
+        resource.parentId
+      ) {
+        await loadWorkspace(token, resource.parentId);
+      } else {
+        await loadWorkspace(token, contents?.folder.id);
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setActionPending(false);
+    }
+  }
+
   return (
     <>
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open && !actionPending) {
+            setEditDialogState(null);
+          }
+        }}
+        open={editDialogState !== null}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editDialogState?.mode === "rename"
+                ? `Rename ${editDialogState.resource.kind}`
+                : `Move ${editDialogState?.resource.kind ?? "resource"}`}
+            </DialogTitle>
+            <DialogDescription>
+              {editDialogState?.mode === "rename"
+                ? "Update the visible name used in the workspace."
+                : "Choose a destination from the folders currently loaded in the tree."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {editDialogState?.mode === "rename" ? (
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="resource-name">Name</FieldLabel>
+                <FieldContent>
+                  <Input
+                    id="resource-name"
+                    onChange={(event) => setResourceName(event.target.value)}
+                    placeholder="Enter a new name"
+                    value={resourceName}
+                  />
+                </FieldContent>
+              </Field>
+            </FieldGroup>
+          ) : (
+            <FieldGroup>
+              <Field>
+                <FieldLabel>Destination folder</FieldLabel>
+                <FieldContent>
+                  <Select onValueChange={setMoveTargetId} value={moveTargetId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a destination" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {moveTargets.map((folder) => (
+                          <SelectItem key={folder.id} value={folder.id}>
+                            {folder.path_cache || folder.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>
+                    Expand more branches in the folder tree to reveal additional
+                    destinations.
+                  </FieldDescription>
+                </FieldContent>
+              </Field>
+            </FieldGroup>
+          )}
+
+          <DialogFooter>
+            <Button
+              disabled={actionPending}
+              onClick={() => setEditDialogState(null)}
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                actionPending ||
+                (editDialogState?.mode === "rename"
+                  ? !resourceName.trim()
+                  : !moveTargetId)
+              }
+              onClick={() => void handleSaveResourceAction()}
+            >
+              {actionPending ? (
+                <Loader2Icon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : editDialogState?.mode === "rename" ? (
+                <PencilIcon data-icon="inline-start" />
+              ) : (
+                <ArrowRightLeftIcon data-icon="inline-start" />
+              )}
+              {editDialogState?.mode === "rename" ? "Save changes" : "Move"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open && !actionPending) {
+            setDeleteDialogResource(null);
+          }
+        }}
+        open={deleteDialogResource !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete resource</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteDialogResource
+                ? `Delete ${deleteDialogResource.name}? This action cannot be undone.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={actionPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteResource();
+              }}
+            >
+              {actionPending ? (
+                <Loader2Icon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : (
+                <TrashIcon data-icon="inline-start" />
+              )}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <ShareManagementSheet
         onCopyLink={handleCopyShareLink}
         onRevoke={handleRevokeShare}
@@ -559,7 +924,22 @@ export function WorkspaceScreen() {
                   activeFolderId={contents?.folder.id ?? null}
                   expandedFolderIds={expandedFolderIds}
                   nodes={folderTree}
+                  onDeleteFolder={(folder) =>
+                    setDeleteDialogResource(toFolderActionResource(folder))
+                  }
                   onOpenFolder={openFolder}
+                  onMoveFolder={(folder) =>
+                    setEditDialogState({
+                      mode: "move",
+                      resource: toFolderActionResource(folder),
+                    })
+                  }
+                  onRenameFolder={(folder) =>
+                    setEditDialogState({
+                      mode: "rename",
+                      resource: toFolderActionResource(folder),
+                    })
+                  }
                   onToggleFolder={toggleFolderExpansion}
                   rootFolderId={rootFolderId}
                 />
@@ -856,7 +1236,28 @@ export function WorkspaceScreen() {
                               <FolderCard
                                 active={contents?.folder.id === item.folder.id}
                                 folder={item.folder}
+                                onDelete={() =>
+                                  setDeleteDialogResource(
+                                    toFolderActionResource(item.folder),
+                                  )
+                                }
+                                onMove={() =>
+                                  setEditDialogState({
+                                    mode: "move",
+                                    resource: toFolderActionResource(
+                                      item.folder,
+                                    ),
+                                  })
+                                }
                                 onOpen={() => void openFolder(item.folder.id)}
+                                onRename={() =>
+                                  setEditDialogState({
+                                    mode: "rename",
+                                    resource: toFolderActionResource(
+                                      item.folder,
+                                    ),
+                                  })
+                                }
                                 onToggleInTree={() =>
                                   void toggleFolderExpansion(item.folder.id)
                                 }
@@ -906,11 +1307,37 @@ export function WorkspaceScreen() {
                                 {fileItems.map((item) => (
                                   <FileRow
                                     file={item.file}
+                                    onDelete={() =>
+                                      setDeleteDialogResource(
+                                        toFileActionResource(
+                                          item.file,
+                                          currentFolderId,
+                                        ),
+                                      )
+                                    }
                                     onDownload={() =>
                                       void handleDownload(
                                         item.file.id,
                                         item.file.stored_filename,
                                       )
+                                    }
+                                    onMove={() =>
+                                      setEditDialogState({
+                                        mode: "move",
+                                        resource: toFileActionResource(
+                                          item.file,
+                                          currentFolderId,
+                                        ),
+                                      })
+                                    }
+                                    onRename={() =>
+                                      setEditDialogState({
+                                        mode: "rename",
+                                        resource: toFileActionResource(
+                                          item.file,
+                                          currentFolderId,
+                                        ),
+                                      })
                                     }
                                   />
                                 ))}
@@ -1018,14 +1445,20 @@ function FolderTree({
   activeFolderId,
   expandedFolderIds,
   nodes,
+  onDeleteFolder,
   onOpenFolder,
+  onMoveFolder,
+  onRenameFolder,
   onToggleFolder,
   rootFolderId,
 }: {
   activeFolderId: string | null;
   expandedFolderIds: Set<string>;
   nodes: Record<string, FolderNode>;
+  onDeleteFolder: (folder: Folder) => void;
   onOpenFolder: (folderId: string) => Promise<void>;
+  onMoveFolder: (folder: Folder) => void;
+  onRenameFolder: (folder: Folder) => void;
   onToggleFolder: (folderId: string) => Promise<void>;
   rootFolderId: string;
 }) {
@@ -1037,7 +1470,10 @@ function FolderTree({
         expandedFolderIds={expandedFolderIds}
         folderId={rootFolderId}
         nodes={nodes}
+        onDeleteFolder={onDeleteFolder}
         onOpenFolder={onOpenFolder}
+        onMoveFolder={onMoveFolder}
+        onRenameFolder={onRenameFolder}
         onToggleFolder={onToggleFolder}
       />
     </div>
@@ -1050,7 +1486,10 @@ function FolderTreeNode({
   expandedFolderIds,
   folderId,
   nodes,
+  onDeleteFolder,
   onOpenFolder,
+  onMoveFolder,
+  onRenameFolder,
   onToggleFolder,
 }: {
   activeFolderId: string | null;
@@ -1058,7 +1497,10 @@ function FolderTreeNode({
   expandedFolderIds: Set<string>;
   folderId: string;
   nodes: Record<string, FolderNode>;
+  onDeleteFolder: (folder: Folder) => void;
   onOpenFolder: (folderId: string) => Promise<void>;
+  onMoveFolder: (folder: Folder) => void;
+  onRenameFolder: (folder: Folder) => void;
   onToggleFolder: (folderId: string) => Promise<void>;
 }) {
   const node = nodes[folderId];
@@ -1109,6 +1551,23 @@ function FolderTreeNode({
             <ChevronRightIcon />
             Toggle branch
           </ContextMenuItem>
+          {node.folder.parent_id ? (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={() => onRenameFolder(node.folder)}>
+                <PencilIcon />
+                Rename
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => onMoveFolder(node.folder)}>
+                <FolderInputIcon />
+                Move
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => onDeleteFolder(node.folder)}>
+                <TrashIcon />
+                Delete
+              </ContextMenuItem>
+            </>
+          ) : null}
         </ContextMenuContent>
       </ContextMenu>
 
@@ -1122,7 +1581,10 @@ function FolderTreeNode({
               folderId={childFolderId}
               key={childFolderId}
               nodes={nodes}
+              onDeleteFolder={onDeleteFolder}
               onOpenFolder={onOpenFolder}
+              onMoveFolder={onMoveFolder}
+              onRenameFolder={onRenameFolder}
               onToggleFolder={onToggleFolder}
             />
           ))}
@@ -1135,12 +1597,18 @@ function FolderTreeNode({
 function FolderCard({
   active,
   folder,
+  onDelete,
+  onMove,
   onOpen,
+  onRename,
   onToggleInTree,
 }: {
   active: boolean;
   folder: Folder;
+  onDelete: () => void;
+  onMove: () => void;
   onOpen: () => void;
+  onRename: () => void;
   onToggleInTree: () => void;
 }) {
   return (
@@ -1186,6 +1654,19 @@ function FolderCard({
           <ChevronRightIcon />
           Toggle in tree
         </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={onRename}>
+          <PencilIcon />
+          Rename
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onMove}>
+          <FolderInputIcon />
+          Move
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onDelete}>
+          <TrashIcon />
+          Delete
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -1193,10 +1674,16 @@ function FolderCard({
 
 function FileRow({
   file,
+  onDelete,
   onDownload,
+  onMove,
+  onRename,
 }: {
   file: FileSummary;
+  onDelete: () => void;
   onDownload: () => void;
+  onMove: () => void;
+  onRename: () => void;
 }) {
   return (
     <ContextMenu>
@@ -1220,6 +1707,19 @@ function FileRow({
         <ContextMenuItem onClick={onDownload}>
           <ArrowDownToLineIcon />
           Download file
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={onRename}>
+          <PencilIcon />
+          Rename
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onMove}>
+          <FolderInputIcon />
+          Move
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onDelete}>
+          <TrashIcon />
+          Delete
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

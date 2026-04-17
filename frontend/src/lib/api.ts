@@ -251,6 +251,77 @@ export async function downloadFile(
   });
 }
 
+export function renameFolder(
+  accessToken: string,
+  folderId: string,
+  payload: { name: string },
+): Promise<void> {
+  return request<void>(`/api/folders/${folderId}`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(payload),
+    responseType: "void",
+  });
+}
+
+export function moveFolder(
+  accessToken: string,
+  folderId: string,
+  payload: { target_parent_id: string },
+): Promise<void> {
+  return request<void>(`/api/folders/${folderId}/move`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(payload),
+    responseType: "void",
+  });
+}
+
+export function deleteFolder(
+  accessToken: string,
+  folderId: string,
+): Promise<void> {
+  return request<void>(`/api/folders/${folderId}`, {
+    method: "DELETE",
+    accessToken,
+    responseType: "void",
+  });
+}
+
+export function renameFile(
+  accessToken: string,
+  fileId: string,
+  payload: { filename: string },
+): Promise<void> {
+  return request<void>(`/api/files/${fileId}`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(payload),
+    responseType: "void",
+  });
+}
+
+export function moveFile(
+  accessToken: string,
+  fileId: string,
+  payload: { target_folder_id: string },
+): Promise<void> {
+  return request<void>(`/api/files/${fileId}/move`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(payload),
+    responseType: "void",
+  });
+}
+
+export function deleteFile(accessToken: string, fileId: string): Promise<void> {
+  return request<void>(`/api/files/${fileId}`, {
+    method: "DELETE",
+    accessToken,
+    responseType: "void",
+  });
+}
+
 export async function getFolderShare(
   accessToken: string,
   folderId: string,
