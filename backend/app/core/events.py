@@ -67,4 +67,9 @@ def build_cleanup_event(
         "resource": resource or {},
         "objects": objects or [],
         "metadata": metadata or {},
+        "delivery": {
+            "attempt": 0,
+            "max_retries": settings.kafka_cleanup_max_retries,
+            "scheduled_at": datetime.now(UTC).isoformat(),
+        },
     }

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.core.events import InMemoryEventPublisher
 from app.persistence.models import File, UploadSession
-from app.workers.cleanup import consume_cleanup_events, handle_cleanup_event
+from app.workers.cleanup import (
+    build_dlq_event,
+    compute_retry_delay_seconds,
+    consume_cleanup_events,
+    handle_cleanup_event,
+    process_cleanup_message,
+    schedule_retry_event,
+)
 from tests_helpers import register_and_login
 
 
@@ -106,7 +115,21 @@ def test_consume_cleanup_events_processes_kafka_messages(object_storage) -> None
         def __init__(self, value) -> None:
             self.value = value
 
-    consumer = iter(
+    class FakeConsumer:
+        def __init__(self, messages) -> None:
+            self._messages = iter(messages)
+            self.committed = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return next(self._messages)
+
+        def commit(self) -> None:
+            self.committed += 1
+
+    consumer = FakeConsumer(
         [
             FakeMessage(
                 {
@@ -117,6 +140,112 @@ def test_consume_cleanup_events_processes_kafka_messages(object_storage) -> None
         ]
     )
 
-    consume_cleanup_events(consumer, object_storage)
+    consume_cleanup_events(consumer, object_storage, InMemoryEventPublisher())
 
     assert not object_storage.object_exists("files", "cleanup/test.txt")
+    assert consumer.committed == 1
+
+
+def test_process_cleanup_message_schedules_retry_on_failure(object_storage) -> None:
+    class FakeConsumer:
+        def __init__(self) -> None:
+            self.committed = 0
+
+        def commit(self) -> None:
+            self.committed += 1
+
+    class FakeMessage:
+        topic = "filesh.cleanup"
+        offset = 1
+
+        def __init__(self, value) -> None:
+            self.value = value
+
+    publisher = InMemoryEventPublisher()
+    consumer = FakeConsumer()
+    message = FakeMessage({"event_type": "unsupported.event", "objects": []})
+
+    process_cleanup_message(consumer, message, object_storage, publisher)
+
+    assert consumer.committed == 1
+    assert publisher.events[-1].topic == "filesh.cleanup.retry"
+    assert publisher.events[-1].payload["delivery"]["attempt"] == 1
+    assert "last_error" in publisher.events[-1].payload["delivery"]
+
+
+def test_process_cleanup_message_sends_dlq_after_max_retries(object_storage) -> None:
+    class FakeConsumer:
+        def __init__(self) -> None:
+            self.committed = 0
+
+        def commit(self) -> None:
+            self.committed += 1
+
+    class FakeMessage:
+        topic = "filesh.cleanup.retry"
+        offset = 2
+
+        def __init__(self, value) -> None:
+            self.value = value
+
+    publisher = InMemoryEventPublisher()
+    consumer = FakeConsumer()
+    message = FakeMessage(
+        {
+            "event_type": "unsupported.event",
+            "objects": [],
+            "delivery": {
+                "attempt": 5,
+                "max_retries": 5,
+                "scheduled_at": datetime.now(UTC).isoformat(),
+            },
+        }
+    )
+
+    process_cleanup_message(consumer, message, object_storage, publisher)
+
+    assert consumer.committed == 1
+    assert publisher.events[-1].topic == "filesh.cleanup.dlq"
+    assert "dlq_reason" in publisher.events[-1].payload["metadata"]
+
+
+def test_retry_delay_uses_exponential_backoff() -> None:
+    assert compute_retry_delay_seconds(1) < compute_retry_delay_seconds(2)
+    assert compute_retry_delay_seconds(2) < compute_retry_delay_seconds(3)
+
+
+def test_schedule_retry_event_sets_future_schedule() -> None:
+    event = {
+        "event_type": "file.delete_requested",
+        "objects": [],
+        "delivery": {
+            "attempt": 0,
+            "max_retries": 5,
+            "scheduled_at": datetime.now(UTC).isoformat(),
+        },
+        "metadata": {},
+    }
+
+    retry_event = schedule_retry_event(event, ValueError("boom"))
+
+    scheduled_at = datetime.fromisoformat(retry_event["delivery"]["scheduled_at"])
+    assert retry_event["delivery"]["attempt"] == 1
+    assert scheduled_at > datetime.now(UTC) - timedelta(seconds=1)
+
+
+def test_build_dlq_event_adds_failure_metadata() -> None:
+    event = {
+        "event_type": "file.delete_requested",
+        "objects": [],
+        "delivery": {
+            "attempt": 5,
+            "max_retries": 5,
+            "scheduled_at": datetime.now(UTC).isoformat(),
+        },
+        "metadata": {},
+    }
+
+    dlq_event = build_dlq_event(event, RuntimeError("fatal"))
+
+    assert dlq_event["metadata"]["dlq_reason"] == "fatal"
+    assert "failed_at" in dlq_event["delivery"]

@@ -19,10 +19,46 @@ class Settings(BaseSettings):
     minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
     kafka_broker: str = Field(default="kafka:9092", alias="KAFKA_BROKER")
     kafka_cleanup_topic: str = Field(default="filesh.cleanup", alias="KAFKA_CLEANUP_TOPIC")
+    kafka_cleanup_retry_topic: str = Field(
+        default="filesh.cleanup.retry",
+        alias="KAFKA_CLEANUP_RETRY_TOPIC",
+    )
+    kafka_cleanup_dlq_topic: str = Field(
+        default="filesh.cleanup.dlq",
+        alias="KAFKA_CLEANUP_DLQ_TOPIC",
+    )
     kafka_client_id: str = Field(default="filesh-backend", alias="KAFKA_CLIENT_ID")
     kafka_cleanup_group_id: str = Field(
         default="filesh-cleanup-worker",
         alias="KAFKA_CLEANUP_GROUP_ID",
+    )
+    kafka_cleanup_topic_partitions: int = Field(
+        default=3,
+        alias="KAFKA_CLEANUP_TOPIC_PARTITIONS",
+    )
+    kafka_cleanup_retry_topic_partitions: int = Field(
+        default=3,
+        alias="KAFKA_CLEANUP_RETRY_TOPIC_PARTITIONS",
+    )
+    kafka_cleanup_dlq_topic_partitions: int = Field(
+        default=1,
+        alias="KAFKA_CLEANUP_DLQ_TOPIC_PARTITIONS",
+    )
+    kafka_cleanup_replication_factor: int = Field(
+        default=1,
+        alias="KAFKA_CLEANUP_REPLICATION_FACTOR",
+    )
+    kafka_cleanup_max_retries: int = Field(
+        default=5,
+        alias="KAFKA_CLEANUP_MAX_RETRIES",
+    )
+    kafka_cleanup_retry_base_seconds: int = Field(
+        default=5,
+        alias="KAFKA_CLEANUP_RETRY_BASE_SECONDS",
+    )
+    kafka_cleanup_retry_max_seconds: int = Field(
+        default=300,
+        alias="KAFKA_CLEANUP_RETRY_MAX_SECONDS",
     )
     kafka_publisher_enabled: bool = Field(default=False, alias="KAFKA_PUBLISHER_ENABLED")
     jwt_secret: str = Field(default=DEFAULT_JWT_SECRET, alias="JWT_SECRET")
