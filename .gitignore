@@ -26,3 +26,4 @@ loki-data/
 
 .agents
 skills-lock.json
+.pnpm-store

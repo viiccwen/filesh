@@ -1,0 +1,83 @@
+:root {
+  color-scheme: light;
+  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+  background:
+    radial-gradient(circle at top, rgba(255, 205, 128, 0.35), transparent 32%),
+    linear-gradient(180deg, #f8f2e8 0%, #efe7d7 100%);
+  color: #1d1a16;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  gap: 1.5rem;
+  padding: 2rem;
+}
+
+.hero,
+.panel {
+  max-width: 820px;
+  border: 1px solid rgba(50, 37, 21, 0.12);
+  border-radius: 24px;
+  padding: 1.5rem;
+  background: rgba(255, 250, 241, 0.8);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 20px 60px rgba(65, 46, 21, 0.08);
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.8rem;
+  color: #7d5f33;
+}
+
+h1,
+h2,
+p,
+ul {
+  margin-top: 0;
+}
+
+h1 {
+  font-size: clamp(2.5rem, 5vw, 4.75rem);
+  line-height: 0.95;
+  margin-bottom: 1rem;
+}
+
+.lede {
+  max-width: 56ch;
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+ul {
+  padding-left: 1.2rem;
+  line-height: 1.8;
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: 1rem;
+  }
+
+  .hero,
+  .panel {
+    padding: 1.25rem;
+    border-radius: 18px;
+  }
+}
