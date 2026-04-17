@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from app.models import Folder, User
+from app.persistence.models import Folder, User
 from tests_helpers import register_and_login
 
 

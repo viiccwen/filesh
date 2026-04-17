@@ -8,12 +8,12 @@ from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import UploadSessionStatus
-from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.persistence.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
-    from app.models.file import File
-    from app.models.folder import Folder
-    from app.models.user import User
+    from app.persistence.models.file import File
+    from app.persistence.models.folder import Folder
+    from app.persistence.models.user import User
 
 
 class UploadSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):

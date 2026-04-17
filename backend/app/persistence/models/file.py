@@ -7,12 +7,12 @@ from sqlalchemy import BigInteger, Enum, ForeignKey, Integer, String, UniqueCons
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import FileStatus
-from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.persistence.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
-    from app.models.folder import Folder
-    from app.models.upload_session import UploadSession
-    from app.models.user import User
+    from app.persistence.models.folder import Folder
+    from app.persistence.models.upload_session import UploadSession
+    from app.persistence.models.user import User
 
 
 class File(UUIDPrimaryKeyMixin, TimestampMixin, Base):

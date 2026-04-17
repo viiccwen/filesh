@@ -9,7 +9,7 @@ from app.application.dto import (
     SharedFolderContentsDTO,
     UploadInitDTO,
 )
-from app.models import File, Folder, ShareLink
+from app.persistence.models import File, Folder, ShareLink
 
 
 def to_upload_init_response(upload_session) -> UploadInitDTO:

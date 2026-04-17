@@ -6,7 +6,7 @@ from sqlalchemy import not_, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import UploadSessionStatus
-from app.models import File, UploadSession
+from app.persistence.models import File, UploadSession
 
 
 def list_filenames_in_folder(session: Session, folder_id: uuid.UUID) -> set[str]:

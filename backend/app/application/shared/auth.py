@@ -13,7 +13,7 @@ from app.core.security import (
     verify_password,
 )
 from app.domain import AuthenticationError, AuthorizationError, ConflictError, ValidationError
-from app.models import User
+from app.persistence.models import User
 from app.repositories import users as user_repository
 from app.schemas.auth import ChangePasswordRequest, LoginRequest, RegisterRequest
 

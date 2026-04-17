@@ -23,7 +23,7 @@ from app.domain import (
     ValidationError,
 )
 from app.domain.enums import PermissionLevel, ResourceType, ShareMode
-from app.models import (
+from app.persistence.models import (
     File,
     Folder,
     ShareInvitation,

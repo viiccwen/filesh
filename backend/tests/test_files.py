@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.application.shared.files import resolve_filename_collision
 from app.domain.enums import UploadSessionStatus
-from app.models import File, UploadSession
+from app.persistence.models import File, UploadSession
 from tests_helpers import register_and_login
 
 

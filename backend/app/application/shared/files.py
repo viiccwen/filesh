@@ -14,7 +14,7 @@ from app.core.events import CleanupEventType, EventPublisher, build_cleanup_even
 from app.core.storage import ObjectStorage
 from app.domain import ConflictError, NotFoundError, ValidationError
 from app.domain.enums import FileStatus, UploadSessionStatus
-from app.models import File, UploadSession
+from app.persistence.models import File, UploadSession
 from app.repositories import files as file_repository
 from app.schemas.file import UploadFailRequest, UploadFinalizeRequest, UploadInitRequest
 

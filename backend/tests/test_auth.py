@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.security import create_access_token
-from app.models import File, User
+from app.persistence.models import File, User
 from app.workers.cleanup import handle_cleanup_event
 
 

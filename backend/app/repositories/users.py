@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models import User
+from app.persistence.models import User
 
 
 def add_user(session: Session, user: User) -> None:

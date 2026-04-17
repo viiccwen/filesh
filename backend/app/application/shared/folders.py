@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
 from app.domain import ConflictError, NotFoundError, ValidationError
-from app.models import File, Folder
+from app.persistence.models import File, Folder
 from app.repositories import files as file_repository
 from app.repositories import folders as folder_repository
 from app.schemas.folder import FolderCreateRequest

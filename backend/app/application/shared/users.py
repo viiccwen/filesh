@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.application.dto import AuthenticatedUser
 from app.domain import ConflictError, NotFoundError
-from app.models import User
+from app.persistence.models import User
 from app.repositories import users as user_repository
 from app.schemas.user import UserUpdateRequest
 

@@ -4,7 +4,7 @@ import uuid
 
 from sqlalchemy import select
 
-from app.models import File, UploadSession
+from app.persistence.models import File, UploadSession
 from app.workers.cleanup import consume_cleanup_events, handle_cleanup_event
 from tests_helpers import register_and_login
 

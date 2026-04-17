@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Folder, UploadSession
+from app.persistence.models import Folder, UploadSession
 
 
 def add_folder(session: Session, folder: Folder) -> None:

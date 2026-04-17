@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.application.shared.shares import hash_share_token
 from app.domain.enums import ResourceType
-from app.models import ShareLink
+from app.persistence.models import ShareLink
 from tests_helpers import register_and_login
 
 

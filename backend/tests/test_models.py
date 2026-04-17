@@ -7,8 +7,8 @@ from app.domain.enums import (
     ShareMode,
     UploadSessionStatus,
 )
-from app.models import File, Folder, ShareInvitation, ShareLink, UploadSession, User
-from app.models.base import Base
+from app.persistence.models import File, Folder, ShareInvitation, ShareLink, UploadSession, User
+from app.persistence.models.base import Base
 
 
 def test_model_exports_and_metadata_tables() -> None:

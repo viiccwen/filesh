@@ -8,10 +8,10 @@ from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, String, Uniqu
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import PermissionLevel, ResourceType, ShareMode
-from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.persistence.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    from app.persistence.models.user import User
 
 
 class ShareLink(UUIDPrimaryKeyMixin, TimestampMixin, Base):

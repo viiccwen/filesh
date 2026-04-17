@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain.enums import ResourceType
-from app.models import File, Folder, ShareLink, User
+from app.persistence.models import File, Folder, ShareLink, User
 
 
 def get_active_share_for_resource(
