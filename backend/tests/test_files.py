@@ -354,3 +354,106 @@ def test_rename_file_rejects_duplicate_sibling_name(client) -> None:
     assert first_finalize.status_code == 200
     assert rename_response.status_code == 409
     assert rename_response.json()["detail"] == "File name already exists in this location"
+
+
+def test_move_file_updates_parent_folder_contents(client) -> None:
+    headers = register_and_login(client, "move-file@example.com", "move-file-user")
+    source_response = client.post("/api/folders", headers=headers, json={"name": "source"})
+    target_response = client.post("/api/folders", headers=headers, json={"name": "target"})
+    init_response = client.post(
+        "/api/files/upload/init",
+        headers=headers,
+        json={
+            "folder_id": source_response.json()["id"],
+            "filename": "move.txt",
+            "expected_size": 4,
+        },
+    )
+    client.post(
+        f"/api/files/upload/{init_response.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("move.txt", b"move", "text/plain")},
+    )
+    finalize_response = client.post(
+        "/api/files/upload/finalize",
+        headers=headers,
+        json={"upload_session_id": init_response.json()["session_id"], "size_bytes": 4},
+    )
+
+    move_response = client.patch(
+        f"/api/files/{finalize_response.json()['id']}/move",
+        headers=headers,
+        json={"target_folder_id": target_response.json()["id"]},
+    )
+    source_contents_response = client.get(
+        f"/api/folders/{source_response.json()['id']}/contents",
+        headers=headers,
+    )
+    target_contents_response = client.get(
+        f"/api/folders/{target_response.json()['id']}/contents",
+        headers=headers,
+    )
+
+    assert move_response.status_code == 200
+    assert move_response.json()["folder_id"] == target_response.json()["id"]
+    assert move_response.json()["version"] == 2
+    assert source_contents_response.json()["files"] == []
+    assert [item["stored_filename"] for item in target_contents_response.json()["files"]] == [
+        "move.txt"
+    ]
+
+
+def test_move_file_rejects_duplicate_name_in_target_folder(client) -> None:
+    headers = register_and_login(client, "move-file-dupe@example.com", "move-file-dupe-user")
+    source_response = client.post("/api/folders", headers=headers, json={"name": "source"})
+    target_response = client.post("/api/folders", headers=headers, json={"name": "target"})
+
+    first_init = client.post(
+        "/api/files/upload/init",
+        headers=headers,
+        json={
+            "folder_id": source_response.json()["id"],
+            "filename": "same.txt",
+            "expected_size": 4,
+        },
+    )
+    client.post(
+        f"/api/files/upload/{first_init.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("same.txt", b"same", "text/plain")},
+    )
+    first_finalize = client.post(
+        "/api/files/upload/finalize",
+        headers=headers,
+        json={"upload_session_id": first_init.json()["session_id"], "size_bytes": 4},
+    )
+
+    second_init = client.post(
+        "/api/files/upload/init",
+        headers=headers,
+        json={
+            "folder_id": target_response.json()["id"],
+            "filename": "same.txt",
+            "expected_size": 4,
+        },
+    )
+    client.post(
+        f"/api/files/upload/{second_init.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("same.txt", b"same", "text/plain")},
+    )
+    second_finalize = client.post(
+        "/api/files/upload/finalize",
+        headers=headers,
+        json={"upload_session_id": second_init.json()["session_id"], "size_bytes": 4},
+    )
+
+    move_response = client.patch(
+        f"/api/files/{first_finalize.json()['id']}/move",
+        headers=headers,
+        json={"target_folder_id": target_response.json()["id"]},
+    )
+
+    assert second_finalize.status_code == 200
+    assert move_response.status_code == 409
+    assert move_response.json()["detail"] == "File name already exists in this location"

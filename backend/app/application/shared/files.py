@@ -279,6 +279,32 @@ def rename_file(session: Session, file_id: uuid.UUID, owner_id: uuid.UUID, filen
     return file
 
 
+def move_file(
+    session: Session,
+    file_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    target_folder_id: uuid.UUID,
+) -> File:
+    file = get_file_for_owner(session, file_id, owner_id)
+    target_folder = get_folder_for_owner(session, target_folder_id, owner_id)
+    sibling_filenames = file_repository.list_filenames_in_folder(session, target_folder.id)
+    if target_folder.id == file.folder_id:
+        sibling_filenames.discard(file.stored_filename)
+    if file.stored_filename in sibling_filenames:
+        raise ConflictError("File name already exists in this location")
+
+    file.folder_id = target_folder.id
+    file.version += 1
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("File name already exists in this location") from exc
+
+    session.refresh(file)
+    return file
+
+
 def download_file_content(storage: ObjectStorage, file: File) -> bytes:
     stored_object = storage.get_object(file.storage_bucket, file.object_key)
     return stored_object.data

@@ -138,6 +138,45 @@ def rename_folder(session: Session, folder_id: uuid.UUID, owner_id: uuid.UUID, n
     return folder
 
 
+def move_folder(
+    session: Session,
+    folder_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    target_parent_id: uuid.UUID,
+) -> Folder:
+    folder = get_folder_for_owner(session, folder_id, owner_id)
+    if folder.parent_id is None and folder.name == ROOT_FOLDER_NAME:
+        raise ValidationError("Root folder cannot be moved")
+
+    target_parent = get_folder_for_owner(session, target_parent_id, owner_id)
+    old_path = folder.path_cache or build_folder_path(None, folder.name)
+
+    if target_parent.id == folder.id:
+        raise ValidationError("Folder cannot be moved into itself")
+    if target_parent.path_cache and (
+        target_parent.path_cache == old_path or target_parent.path_cache.startswith(f"{old_path}/")
+    ):
+        raise ValidationError("Folder cannot be moved into its descendant")
+
+    new_path = build_folder_path(target_parent, folder.name)
+    descendants = folder_repository.list_descendant_folders(session, owner_id, old_path)
+    folder.parent_id = target_parent.id
+    folder.path_cache = new_path
+    for descendant in descendants:
+        if descendant.id == folder.id or descendant.path_cache is None:
+            continue
+        descendant.path_cache = descendant.path_cache.replace(old_path, new_path, 1)
+
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("Folder name already exists in this location") from exc
+
+    session.refresh(folder)
+    return folder
+
+
 def list_descendant_files(session: Session, folder_ids: list[uuid.UUID]) -> list[File]:
     return file_repository.list_files_by_folder_ids(session, folder_ids)
 

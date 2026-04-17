@@ -172,3 +172,52 @@ def test_rename_root_folder_is_forbidden(client) -> None:
 
     assert rename_response.status_code == 400
     assert rename_response.json()["detail"] == "Root folder cannot be renamed"
+
+
+def test_move_folder_updates_parent_and_subtree_paths(client) -> None:
+    headers = register_and_login(client, "move-folder@example.com", "move-folder-user")
+    root_response = client.get("/api/folders/root", headers=headers)
+    source_response = client.post("/api/folders", headers=headers, json={"name": "source"})
+    target_response = client.post("/api/folders", headers=headers, json={"name": "target"})
+    child_response = client.post(
+        "/api/folders",
+        headers=headers,
+        json={"name": "child", "parent_id": source_response.json()["id"]},
+    )
+
+    move_response = client.patch(
+        f"/api/folders/{source_response.json()['id']}/move",
+        headers=headers,
+        json={"target_parent_id": target_response.json()["id"]},
+    )
+    child_get_response = client.get(f"/api/folders/{child_response.json()['id']}", headers=headers)
+    root_contents_response = client.get(
+        f"/api/folders/{root_response.json()['id']}/contents",
+        headers=headers,
+    )
+
+    assert move_response.status_code == 200
+    assert move_response.json()["parent_id"] == target_response.json()["id"]
+    assert move_response.json()["path_cache"] == "/target/source"
+    assert child_get_response.status_code == 200
+    assert child_get_response.json()["path_cache"] == "/target/source/child"
+    assert [item["name"] for item in root_contents_response.json()["folders"]] == ["target"]
+
+
+def test_move_folder_rejects_descendant_target(client) -> None:
+    headers = register_and_login(client, "move-cycle@example.com", "move-cycle-user")
+    parent_response = client.post("/api/folders", headers=headers, json={"name": "parent"})
+    child_response = client.post(
+        "/api/folders",
+        headers=headers,
+        json={"name": "child", "parent_id": parent_response.json()["id"]},
+    )
+
+    move_response = client.patch(
+        f"/api/folders/{parent_response.json()['id']}/move",
+        headers=headers,
+        json={"target_parent_id": child_response.json()["id"]},
+    )
+
+    assert move_response.status_code == 400
+    assert move_response.json()["detail"] == "Folder cannot be moved into its descendant"

@@ -8,6 +8,7 @@ from app.application.shared.folders import (
     get_folder_for_owner,
     get_or_create_root_folder,
     list_folder_contents,
+    move_folder,
     rename_folder,
 )
 from app.application.shared.presenters import to_folder_contents_response
@@ -17,6 +18,7 @@ from app.models import ResourceType, User
 from app.schemas.folder import (
     FolderContentsResponse,
     FolderCreateRequest,
+    FolderMoveRequest,
     FolderRead,
     FolderRenameRequest,
 )
@@ -54,6 +56,15 @@ class FolderUseCase:
         payload: FolderRenameRequest,
     ) -> FolderRead:
         folder = rename_folder(self.session, folder_id, current_user.id, payload.name)
+        return FolderRead.model_validate(folder)
+
+    def move(
+        self,
+        folder_id: uuid.UUID,
+        current_user: User,
+        payload: FolderMoveRequest,
+    ) -> FolderRead:
+        folder = move_folder(self.session, folder_id, current_user.id, payload.target_parent_id)
         return FolderRead.model_validate(folder)
 
     def get_share(self, folder_id: uuid.UUID, current_user: User) -> ShareRead:

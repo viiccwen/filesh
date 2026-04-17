@@ -13,6 +13,7 @@ from app.models import User
 from app.schemas.folder import (
     FolderContentsResponse,
     FolderCreateRequest,
+    FolderMoveRequest,
     FolderRead,
     FolderRenameRequest,
 )
@@ -92,6 +93,19 @@ def rename(
 ) -> FolderRead:
     try:
         return use_case.rename(folder_id, current_user, payload)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.patch("/{folder_id}/move", response_model=FolderRead)
+def move(
+    folder_id: uuid.UUID,
+    payload: FolderMoveRequest,
+    current_user: User = current_user_dependency,
+    use_case: FolderUseCase = folder_use_case_dependency,
+) -> FolderRead:
+    try:
+        return use_case.move(folder_id, current_user, payload)
     except AppError as exc:
         raise to_http_exception(exc) from exc
 

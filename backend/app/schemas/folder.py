@@ -17,6 +17,10 @@ class FolderRenameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
+class FolderMoveRequest(BaseModel):
+    target_parent_id: uuid.UUID
+
+
 class FolderRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

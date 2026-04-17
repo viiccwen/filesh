@@ -12,6 +12,7 @@ from app.dependencies.use_cases import get_file_use_case
 from app.domain import AppError
 from app.models import User
 from app.schemas.file import (
+    FileMoveRequest,
     FileRead,
     FileRenameRequest,
     UploadFailRequest,
@@ -129,6 +130,19 @@ def rename_file(
 ) -> FileRead:
     try:
         return use_case.rename(file_id, current_user, payload)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.patch("/{file_id}/move", response_model=FileRead)
+def move_file(
+    file_id: uuid.UUID,
+    payload: FileMoveRequest,
+    current_user: User = current_user_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
+) -> FileRead:
+    try:
+        return use_case.move(file_id, current_user, payload)
     except AppError as exc:
         raise to_http_exception(exc) from exc
 

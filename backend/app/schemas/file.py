@@ -41,6 +41,10 @@ class FileRenameRequest(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
 
 
+class FileMoveRequest(BaseModel):
+    target_folder_id: uuid.UUID
+
+
 class UploadInitRequest(BaseModel):
     folder_id: uuid.UUID
     filename: str = Field(min_length=1, max_length=255)

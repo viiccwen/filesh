@@ -9,6 +9,7 @@ from app.application.shared.files import (
     finalize_upload,
     get_file_for_owner,
     init_upload,
+    move_file,
     rename_file,
     upload_content,
 )
@@ -18,6 +19,7 @@ from app.core.events import EventPublisher
 from app.core.storage import ObjectStorage
 from app.models import ResourceType, User
 from app.schemas.file import (
+    FileMoveRequest,
     FileRead,
     FileRenameRequest,
     UploadFailRequest,
@@ -85,6 +87,15 @@ class FileUseCase:
         payload: FileRenameRequest,
     ) -> FileRead:
         file = rename_file(self.session, file_id, current_user.id, payload.filename)
+        return FileRead.model_validate(file)
+
+    def move(
+        self,
+        file_id: uuid.UUID,
+        current_user: User,
+        payload: FileMoveRequest,
+    ) -> FileRead:
+        file = move_file(self.session, file_id, current_user.id, payload.target_folder_id)
         return FileRead.model_validate(file)
 
     def get_share(self, file_id: uuid.UUID, current_user: User) -> ShareRead:
