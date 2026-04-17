@@ -13,7 +13,6 @@ import {
   FolderIcon,
   FolderInputIcon,
   FolderOpenIcon,
-  FolderPlusIcon,
   Link2Icon,
   Loader2Icon,
   LogOutIcon,
@@ -48,13 +47,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -117,8 +110,8 @@ import {
 } from "@/features/workspace/schemas";
 import {
   ApiError,
-  createFolder,
   createFolderShare,
+  createFolder,
   deleteFile,
   deleteFolder,
   downloadFile,
@@ -159,6 +152,7 @@ type ActionResource =
     };
 
 type EditDialogState =
+  | { mode: "create-folder"; parentId: string }
   | { mode: "rename"; resource: ActionResource }
   | { mode: "move"; resource: ActionResource }
   | null;
@@ -182,8 +176,6 @@ export function WorkspaceScreen() {
   const [workspacePending, setWorkspacePending] = useState(false);
   const [resourcePending, setResourcePending] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [folderPending, setFolderPending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [sharePending, setSharePending] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
@@ -274,7 +266,19 @@ export function WorkspaceScreen() {
   }, [contents, folderTree]);
 
   const moveTargets = useMemo(() => {
-    const activeResource = editDialogState?.resource;
+    if (!editDialogState || editDialogState.mode === "create-folder") {
+      return Object.values(folderTree)
+        .map((node) => node.folder)
+        .sort((left, right) =>
+          (left.path_cache ?? left.name).localeCompare(
+            right.path_cache ?? right.name,
+            undefined,
+            { sensitivity: "base" },
+          ),
+        );
+    }
+
+    const activeResource = editDialogState.resource;
     const currentFolderPath =
       activeResource?.kind === "folder" ? activeResource.pathCache : null;
 
@@ -315,6 +319,12 @@ export function WorkspaceScreen() {
 
   useEffect(() => {
     if (!editDialogState) {
+      setResourceName("");
+      setMoveTargetId("");
+      return;
+    }
+
+    if (editDialogState.mode === "create-folder") {
       setResourceName("");
       setMoveTargetId("");
       return;
@@ -469,29 +479,6 @@ export function WorkspaceScreen() {
     }
   }
 
-  async function handleCreateFolder(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const token = accessToken;
-    if (!contents || !token || !newFolderName.trim()) {
-      return;
-    }
-
-    setFolderPending(true);
-    try {
-      await createFolder(token, {
-        name: newFolderName.trim(),
-        parent_id: contents.folder.id,
-      });
-      setNewFolderName("");
-      await loadWorkspace(token, contents.folder.id);
-      toast.success("Folder created");
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    } finally {
-      setFolderPending(false);
-    }
-  }
-
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     const token = accessToken;
@@ -622,7 +609,18 @@ export function WorkspaceScreen() {
     setActionPending(true);
 
     try {
-      if (editDialogState.mode === "rename") {
+      if (editDialogState.mode === "create-folder") {
+        if (!resourceName.trim()) {
+          toast.error("Enter a valid folder name.");
+          return;
+        }
+
+        await createFolder(token, {
+          name: resourceName.trim(),
+          parent_id: editDialogState.parentId,
+        });
+        toast.success("Folder created");
+      } else if (editDialogState.mode === "rename") {
         if (!resourceName.trim()) {
           toast.error("Enter a valid name.");
           return;
@@ -716,18 +714,23 @@ export function WorkspaceScreen() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {editDialogState?.mode === "rename"
-                ? `Rename ${editDialogState.resource.kind}`
-                : `Move ${editDialogState?.resource.kind ?? "resource"}`}
+              {editDialogState?.mode === "create-folder"
+                ? "Create folder"
+                : editDialogState?.mode === "rename"
+                  ? `Rename ${editDialogState.resource.kind}`
+                  : `Move ${editDialogState?.resource.kind ?? "resource"}`}
             </DialogTitle>
             <DialogDescription>
-              {editDialogState?.mode === "rename"
-                ? "Update the visible name used in the workspace."
-                : "Choose a destination from the folders currently loaded in the tree."}
+              {editDialogState?.mode === "create-folder"
+                ? "Create a new folder in the current location."
+                : editDialogState?.mode === "rename"
+                  ? "Update the visible name used in the workspace."
+                  : "Choose a destination from the folders currently loaded in the tree."}
             </DialogDescription>
           </DialogHeader>
 
-          {editDialogState?.mode === "rename" ? (
+          {editDialogState?.mode === "create-folder" ||
+          editDialogState?.mode === "rename" ? (
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="resource-name">Name</FieldLabel>
@@ -780,9 +783,9 @@ export function WorkspaceScreen() {
             <Button
               disabled={
                 actionPending ||
-                (editDialogState?.mode === "rename"
-                  ? !resourceName.trim()
-                  : !moveTargetId)
+                (editDialogState?.mode === "move"
+                  ? !moveTargetId
+                  : !resourceName.trim())
               }
               onClick={() => void handleSaveResourceAction()}
             >
@@ -791,12 +794,17 @@ export function WorkspaceScreen() {
                   className="animate-spin"
                   data-icon="inline-start"
                 />
-              ) : editDialogState?.mode === "rename" ? (
+              ) : editDialogState?.mode === "create-folder" ||
+                editDialogState?.mode === "rename" ? (
                 <PencilIcon data-icon="inline-start" />
               ) : (
                 <ArrowRightLeftIcon data-icon="inline-start" />
               )}
-              {editDialogState?.mode === "rename" ? "Save changes" : "Move"}
+              {editDialogState?.mode === "create-folder"
+                ? "Create folder"
+                : editDialogState?.mode === "rename"
+                  ? "Save changes"
+                  : "Move"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -862,163 +870,147 @@ export function WorkspaceScreen() {
         type="file"
       />
 
-      <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
-        <aside className="flex flex-col gap-4">
-          <Card className="rounded-[2rem] border-border/70 bg-card/95">
-            <CardHeader className="gap-5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <Avatar className="size-11">
-                    <AvatarFallback>
-                      {getInitials(user.nickname)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <CardTitle className="truncate text-base">
-                      {user.nickname}
-                    </CardTitle>
-                    <CardDescription className="truncate">
-                      @{user.username}
-                    </CardDescription>
-                  </div>
-                </div>
-                <Button
-                  onClick={() => void logout()}
-                  size="icon-sm"
-                  variant="outline"
-                >
-                  <LogOutIcon />
-                </Button>
+      <div className="flex flex-col gap-6">
+        <header className="sticky top-4 z-40">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 rounded-full border border-border/70 bg-background/78 px-3 py-3 shadow-lg shadow-black/5 ring-1 ring-white/55 backdrop-blur-xl sm:px-5">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-full bg-foreground text-background">
+                <SparklesIcon />
               </div>
-
-              <div className="rounded-[1.5rem] border bg-muted/35 p-4">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <SparklesIcon className="text-muted-foreground" />
-                  Workspace summary
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <MetricPill
-                    label="Folders"
-                    value={String(contents?.folders.length ?? 0)}
-                  />
-                  <MetricPill
-                    label="Files"
-                    value={String(contents?.files.length ?? 0)}
-                  />
-                </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold tracking-[0.22em] text-foreground uppercase">
+                  filesh
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Workspace-first file sharing.
+                </p>
               </div>
-            </CardHeader>
-          </Card>
+            </div>
 
-          <Card className="rounded-[2rem] border-border/70 bg-card/95">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Navigation</CardTitle>
-              <CardDescription>
-                Right click any folder in the tree to open it or expand it in
-                place.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {rootFolderId ? (
-                <FolderTree
-                  activeFolderId={contents?.folder.id ?? null}
-                  expandedFolderIds={expandedFolderIds}
-                  nodes={folderTree}
-                  onDeleteFolder={(folder) =>
-                    setDeleteDialogResource(toFolderActionResource(folder))
-                  }
-                  onOpenFolder={openFolder}
-                  onMoveFolder={(folder) =>
-                    setEditDialogState({
-                      mode: "move",
-                      resource: toFolderActionResource(folder),
-                    })
-                  }
-                  onRenameFolder={(folder) =>
-                    setEditDialogState({
-                      mode: "rename",
-                      resource: toFolderActionResource(folder),
-                    })
-                  }
-                  onToggleFolder={toggleFolderExpansion}
-                  rootFolderId={rootFolderId}
-                />
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <Skeleton className="h-8 rounded-xl" />
-                  <Skeleton className="h-8 rounded-xl" />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </aside>
+            <div className="flex items-center gap-3">
+              <Avatar className="size-10 border border-border/70 bg-card">
+                <AvatarFallback>{getInitials(user.nickname)}</AvatarFallback>
+              </Avatar>
+              <div className="hidden min-w-0 sm:block">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {user.nickname}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  @{user.username}
+                </p>
+              </div>
+              <Button onClick={() => void logout()} variant="outline">
+                <LogOutIcon data-icon="inline-start" />
+                Log out
+              </Button>
+            </div>
+          </div>
+        </header>
 
-        <ContextMenu>
-          <ContextMenuTrigger>
-            <main className="flex flex-col gap-4">
-              <Card className="rounded-[2rem] border-border/70 bg-card/95">
-                <CardHeader className="gap-4 pb-4">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="flex min-w-0 flex-col gap-3">
-                      <Breadcrumb>
-                        <BreadcrumbList>
-                          {breadcrumbFolders.length > 0 ? (
-                            breadcrumbFolders.map((folder, index) => {
-                              const isLast =
-                                index === breadcrumbFolders.length - 1;
+        <div className="grid gap-8 xl:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="rounded-[2rem] border border-border/70 bg-background/60 p-4 shadow-lg shadow-black/5 backdrop-blur">
+            <div className="mb-4">
+              <h2 className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Navigation
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Right click any folder to open, move, rename, or delete.
+              </p>
+            </div>
 
-                              return (
-                                <Fragment key={folder.id}>
-                                  <BreadcrumbItem>
-                                    {isLast ? (
-                                      <BreadcrumbPage>
-                                        {folder.name}
-                                      </BreadcrumbPage>
-                                    ) : (
-                                      <BreadcrumbLink
-                                        className="cursor-pointer"
-                                        onClick={() =>
-                                          void openFolder(folder.id)
-                                        }
-                                      >
-                                        {folder.name}
-                                      </BreadcrumbLink>
-                                    )}
-                                  </BreadcrumbItem>
-                                  {!isLast ? <BreadcrumbSeparator /> : null}
-                                </Fragment>
-                              );
-                            })
-                          ) : (
-                            <BreadcrumbItem>
-                              <BreadcrumbPage>Workspace</BreadcrumbPage>
-                            </BreadcrumbItem>
-                          )}
-                        </BreadcrumbList>
-                      </Breadcrumb>
+            {rootFolderId ? (
+              <FolderTree
+                activeFolderId={contents?.folder.id ?? null}
+                expandedFolderIds={expandedFolderIds}
+                nodes={folderTree}
+                onDeleteFolder={(folder) =>
+                  setDeleteDialogResource(toFolderActionResource(folder))
+                }
+                onOpenFolder={openFolder}
+                onMoveFolder={(folder) =>
+                  setEditDialogState({
+                    mode: "move",
+                    resource: toFolderActionResource(folder),
+                  })
+                }
+                onRenameFolder={(folder) =>
+                  setEditDialogState({
+                    mode: "rename",
+                    resource: toFolderActionResource(folder),
+                  })
+                }
+                onToggleFolder={toggleFolderExpansion}
+                rootFolderId={rootFolderId}
+              />
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-8 rounded-xl" />
+                <Skeleton className="h-8 rounded-xl" />
+              </div>
+            )}
+          </aside>
+
+          <ContextMenu>
+            <ContextMenuTrigger>
+              <main className="flex min-w-0 flex-col gap-6">
+                <div className="flex flex-col gap-5">
+                  <div className="flex min-w-0 flex-col gap-3">
+                    <Breadcrumb>
+                      <BreadcrumbList>
+                        {breadcrumbFolders.length > 0 ? (
+                          breadcrumbFolders.map((folder, index) => {
+                            const isLast =
+                              index === breadcrumbFolders.length - 1;
+
+                            return (
+                              <Fragment key={folder.id}>
+                                <BreadcrumbItem>
+                                  {isLast ? (
+                                    <BreadcrumbPage>
+                                      {folder.name}
+                                    </BreadcrumbPage>
+                                  ) : (
+                                    <BreadcrumbLink
+                                      className="cursor-pointer"
+                                      onClick={() => void openFolder(folder.id)}
+                                    >
+                                      {folder.name}
+                                    </BreadcrumbLink>
+                                  )}
+                                </BreadcrumbItem>
+                                {!isLast ? <BreadcrumbSeparator /> : null}
+                              </Fragment>
+                            );
+                          })
+                        ) : (
+                          <BreadcrumbItem>
+                            <BreadcrumbPage>Workspace</BreadcrumbPage>
+                          </BreadcrumbItem>
+                        )}
+                      </BreadcrumbList>
+                    </Breadcrumb>
+
+                    <div className="flex flex-wrap items-end justify-between gap-4">
                       <div>
-                        <CardTitle className="text-2xl tracking-tight">
+                        <h1 className="text-4xl tracking-[-0.05em] text-foreground sm:text-5xl">
                           File management
-                        </CardTitle>
-                        <CardDescription className="mt-1">
+                        </h1>
+                        <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
                           Browse the current folder, search quickly, and use
-                          right click for item actions.
-                        </CardDescription>
+                          right click for every workspace action.
+                        </p>
                       </div>
-                    </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        onClick={() => setShareSheetOpen(true)}
-                        variant={share ? "outline" : "default"}
-                      >
-                        <Link2Icon data-icon="inline-start" />
-                        Manage share
-                      </Button>
-                      <Button onClick={openNativeFilePicker} variant="outline">
-                        <UploadIcon data-icon="inline-start" />
-                        Upload
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {share ? (
+                          <Badge variant="outline">
+                            {share.permission_level}
+                          </Badge>
+                        ) : null}
+                        <Badge variant={share ? "default" : "secondary"}>
+                          {share ? "Active share" : "No share"}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
 
@@ -1112,82 +1104,16 @@ export function WorkspaceScreen() {
                       </FieldContent>
                     </Field>
                   </div>
-                </CardHeader>
-              </Card>
+                </div>
 
-              {workspaceError ? (
-                <Alert variant="destructive">
-                  <AlertTitle>Workspace load failed</AlertTitle>
-                  <AlertDescription>{workspaceError}</AlertDescription>
-                </Alert>
-              ) : null}
+                {workspaceError ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Workspace load failed</AlertTitle>
+                    <AlertDescription>{workspaceError}</AlertDescription>
+                  </Alert>
+                ) : null}
 
-              <Card className="rounded-[2rem] border-border/70 bg-card/95">
-                <CardHeader className="gap-5 pb-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <CardTitle className="text-lg">Quick create</CardTitle>
-                      <CardDescription>
-                        Keep the main flow lightweight. Use this bar for
-                        creation and right click for item actions.
-                      </CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {share ? (
-                        <Badge variant="outline">
-                          {share.permission_level}
-                        </Badge>
-                      ) : null}
-                      <Badge variant={share ? "default" : "secondary"}>
-                        {share ? "Active share" : "No share"}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <form
-                    className="grid gap-3 md:grid-cols-[1fr_auto]"
-                    onSubmit={handleCreateFolder}
-                  >
-                    <Field>
-                      <FieldLabel htmlFor="new-folder-name">
-                        New folder
-                      </FieldLabel>
-                      <FieldContent>
-                        <Input
-                          id="new-folder-name"
-                          onChange={(event) =>
-                            setNewFolderName(event.target.value)
-                          }
-                          placeholder="Enter a folder name"
-                          value={newFolderName}
-                        />
-                        <FieldDescription>
-                          Name validation and permission checks still come from
-                          the backend.
-                        </FieldDescription>
-                      </FieldContent>
-                    </Field>
-                    <div className="flex items-end">
-                      <Button
-                        className="w-full md:w-auto"
-                        disabled={folderPending || !newFolderName.trim()}
-                        type="submit"
-                      >
-                        {folderPending ? (
-                          <Loader2Icon
-                            className="animate-spin"
-                            data-icon="inline-start"
-                          />
-                        ) : (
-                          <FolderPlusIcon data-icon="inline-start" />
-                        )}
-                        Create folder
-                      </Button>
-                    </div>
-                  </form>
-                </CardHeader>
-
-                <CardContent className="flex flex-col gap-6">
+                <div className="flex flex-col gap-6">
                   {workspacePending && !contents ? (
                     <div className="grid gap-3">
                       <Skeleton className="h-28 rounded-2xl" />
@@ -1208,7 +1134,7 @@ export function WorkspaceScreen() {
                         <EmptyDescription>
                           {searchQuery
                             ? "Try a different query, sort order, or page size."
-                            : "Upload a file, create a folder, or open the share manager to keep moving."}
+                            : "Right click anywhere in the workspace to upload, create a folder, or manage sharing."}
                         </EmptyDescription>
                       </EmptyHeader>
                     </Empty>
@@ -1352,92 +1278,83 @@ export function WorkspaceScreen() {
                       </section>
                     </>
                   )}
-                </CardContent>
-              </Card>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-muted-foreground">
-                  Showing{" "}
-                  {resourceResults?.pagination.total_items
-                    ? (pageIndex - 1) * pageSize + 1
-                    : 0}{" "}
-                  to{" "}
-                  {Math.min(
-                    pageIndex * pageSize,
-                    resourceResults?.pagination.total_items ?? 0,
-                  )}{" "}
-                  of {resourceResults?.pagination.total_items ?? 0} items
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    disabled={pageIndex === 1 || resourcePending}
-                    onClick={() =>
-                      setPageIndex((current) => Math.max(1, current - 1))
-                    }
-                    variant="outline"
-                  >
-                    Previous
-                  </Button>
-                  <Badge variant="outline">
-                    Page {pageIndex} of{" "}
-                    {resourceResults?.pagination.total_pages ?? 1}
-                  </Badge>
-                  <Button
-                    disabled={
-                      resourcePending ||
-                      pageIndex >=
-                        (resourceResults?.pagination.total_pages ?? 1)
-                    }
-                    onClick={() =>
-                      setPageIndex((current) =>
-                        Math.min(
-                          resourceResults?.pagination.total_pages ?? 1,
-                          current + 1,
-                        ),
-                      )
-                    }
-                    variant="outline"
-                  >
-                    Next
-                  </Button>
                 </div>
-              </div>
-            </main>
-          </ContextMenuTrigger>
 
-          <ContextMenuContent>
-            <ContextMenuItem onClick={() => void setShareSheetOpen(true)}>
-              <Link2Icon />
-              Manage current folder share
-            </ContextMenuItem>
-            <ContextMenuItem onClick={openNativeFilePicker}>
-              <UploadIcon />
-              Upload a file
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              onClick={() =>
-                document.getElementById("new-folder-name")?.focus()
-              }
-            >
-              <FolderPlusIcon />
-              Focus new folder input
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Showing{" "}
+                    {resourceResults?.pagination.total_items
+                      ? (pageIndex - 1) * pageSize + 1
+                      : 0}{" "}
+                    to{" "}
+                    {Math.min(
+                      pageIndex * pageSize,
+                      resourceResults?.pagination.total_items ?? 0,
+                    )}{" "}
+                    of {resourceResults?.pagination.total_items ?? 0} items
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      disabled={pageIndex === 1 || resourcePending}
+                      onClick={() =>
+                        setPageIndex((current) => Math.max(1, current - 1))
+                      }
+                      variant="outline"
+                    >
+                      Previous
+                    </Button>
+                    <Badge variant="outline">
+                      Page {pageIndex} of{" "}
+                      {resourceResults?.pagination.total_pages ?? 1}
+                    </Badge>
+                    <Button
+                      disabled={
+                        resourcePending ||
+                        pageIndex >=
+                          (resourceResults?.pagination.total_pages ?? 1)
+                      }
+                      onClick={() =>
+                        setPageIndex((current) =>
+                          Math.min(
+                            resourceResults?.pagination.total_pages ?? 1,
+                            current + 1,
+                          ),
+                        )
+                      }
+                      variant="outline"
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              </main>
+            </ContextMenuTrigger>
+
+            <ContextMenuContent>
+              <ContextMenuItem
+                onClick={() =>
+                  setEditDialogState({
+                    mode: "create-folder",
+                    parentId: currentFolderId,
+                  })
+                }
+              >
+                <FolderInputIcon />
+                Create folder
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => void setShareSheetOpen(true)}>
+                <Link2Icon />
+                Manage current folder share
+              </ContextMenuItem>
+              <ContextMenuItem onClick={openNativeFilePicker}>
+                <UploadIcon />
+                Upload a file
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+        </div>
       </div>
     </>
-  );
-}
-
-function MetricPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border bg-background/80 px-3 py-3">
-      <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
-    </div>
   );
 }
 
