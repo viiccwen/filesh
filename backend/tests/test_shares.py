@@ -93,6 +93,11 @@ def test_email_invitation_share_allows_only_invited_user(client) -> None:
         headers=owner_headers,
         json={"folder_id": file_folder.json()["id"], "filename": "doc.txt", "expected_size": 10},
     )
+    client.post(
+        f"/api/files/upload/{init_response.json()['session_id']}/content",
+        headers=owner_headers,
+        files={"file": ("doc.txt", b"share-data", "text/plain")},
+    )
     finalize_response = client.post(
         "/api/files/upload/finalize",
         headers=owner_headers,
@@ -117,6 +122,10 @@ def test_email_invitation_share_allows_only_invited_user(client) -> None:
     assert invited_response.status_code == 200
     assert invited_response.json()["file"]["stored_filename"] == "doc.txt"
     assert other_response.status_code == 403
+
+    download_response = client.get(f"/s/{token}/download", headers=invited_headers)
+    assert download_response.status_code == 200
+    assert download_response.content == b"share-data"
 
 
 def test_share_revoke_and_duplicate_active_share(client) -> None:

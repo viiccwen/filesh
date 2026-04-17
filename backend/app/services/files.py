@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.storage import ObjectStorage
 from app.models import File, FileStatus, UploadSession, UploadSessionStatus, User
 from app.schemas.file import UploadFailRequest, UploadFinalizeRequest, UploadInitRequest
 from app.services.folders import get_folder_for_owner
@@ -115,6 +116,11 @@ def finalize_upload(session: Session, owner: User, payload: UploadFinalizeReques
             status_code=status.HTTP_409_CONFLICT,
             detail="Upload session already failed",
         )
+    if upload_session.status is UploadSessionStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Upload content not received",
+        )
     if upload_session.status is UploadSessionStatus.FINALIZED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -155,6 +161,45 @@ def finalize_upload(session: Session, owner: User, payload: UploadFinalizeReques
     return file
 
 
+def upload_content(
+    session: Session,
+    owner: User,
+    upload_session_id: uuid.UUID,
+    data: bytes,
+    content_type: str | None,
+    storage: ObjectStorage,
+) -> UploadSession:
+    upload_session = get_upload_session_for_owner(session, upload_session_id, owner.id)
+    if upload_session.status is UploadSessionStatus.FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Upload session already failed",
+        )
+    if upload_session.status is UploadSessionStatus.FINALIZED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Upload session already finalized",
+        )
+    if len(data) > upload_session.expected_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded content exceeds expected size",
+        )
+
+    storage.put_object(
+        bucket=settings.minio_bucket,
+        object_key=upload_session.object_key,
+        data=data,
+        content_type=content_type or upload_session.content_type,
+    )
+    upload_session.content_type = content_type or upload_session.content_type
+    upload_session.expected_size = len(data)
+    upload_session.status = UploadSessionStatus.ACTIVE
+    session.commit()
+    session.refresh(upload_session)
+    return upload_session
+
+
 def fail_upload(session: Session, owner: User, payload: UploadFailRequest) -> UploadSession:
     upload_session = get_upload_session_for_owner(session, payload.upload_session_id, owner.id)
     if upload_session.status is UploadSessionStatus.FINALIZED:
@@ -177,7 +222,18 @@ def get_file_for_owner(session: Session, file_id: uuid.UUID, owner_id: uuid.UUID
     return file
 
 
-def delete_file(session: Session, file_id: uuid.UUID, owner_id: uuid.UUID) -> None:
+def download_file_content(storage: ObjectStorage, file: File) -> bytes:
+    stored_object = storage.get_object(file.storage_bucket, file.object_key)
+    return stored_object.data
+
+
+def delete_file(
+    session: Session,
+    file_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    storage: ObjectStorage,
+) -> None:
     file = get_file_for_owner(session, file_id, owner_id)
+    storage.delete_object(file.storage_bucket, file.object_key)
     session.delete(file)
     session.commit()

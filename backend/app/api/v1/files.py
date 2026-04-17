@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.core.storage import ObjectStorage
 from app.dependencies.auth import get_current_user
+from app.dependencies.storage import get_object_storage
 from app.models import ResourceType, User
 from app.schemas.file import (
     FileRead,
@@ -18,16 +21,19 @@ from app.schemas.file import (
 from app.schemas.share import ShareRead, ShareUpsertRequest
 from app.services.files import (
     delete_file,
+    download_file_content,
     fail_upload,
     finalize_upload,
     get_file_for_owner,
     init_upload,
+    upload_content,
 )
 from app.services.shares import create_share, get_share, revoke_share, update_share
 
 router = APIRouter()
 db_session_dependency = Depends(get_db_session)
 current_user_dependency = Depends(get_current_user)
+object_storage_dependency = Depends(get_object_storage)
 
 
 @router.post("/upload/init", response_model=UploadInitResponse, status_code=status.HTTP_201_CREATED)
@@ -55,6 +61,26 @@ def upload_finalize(
     return FileRead.model_validate(file)
 
 
+@router.post("/upload/{upload_session_id}/content", status_code=status.HTTP_204_NO_CONTENT)
+async def upload_content_object(
+    upload_session_id: uuid.UUID,
+    file: UploadFile,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+    object_storage: ObjectStorage = object_storage_dependency,
+) -> Response:
+    data = await file.read()
+    upload_content(
+        session,
+        current_user,
+        upload_session_id,
+        data,
+        file.content_type,
+        object_storage,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/upload/fail", status_code=status.HTTP_204_NO_CONTENT)
 def upload_fail(
     payload: UploadFailRequest,
@@ -75,13 +101,30 @@ def get_file(
     return FileRead.model_validate(file)
 
 
+@router.get("/{file_id}/download")
+def download_file(
+    file_id: uuid.UUID,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+    object_storage: ObjectStorage = object_storage_dependency,
+) -> StreamingResponse:
+    file = get_file_for_owner(session, file_id, current_user.id)
+    data = download_file_content(object_storage, file)
+    return StreamingResponse(
+        iter([data]),
+        media_type=file.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{file.stored_filename}"'},
+    )
+
+
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_file(
     file_id: uuid.UUID,
     session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
+    object_storage: ObjectStorage = object_storage_dependency,
 ) -> Response:
-    delete_file(session, file_id, current_user.id)
+    delete_file(session, file_id, current_user.id, object_storage)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

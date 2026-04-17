@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.core.storage import ObjectStorage
 from app.dependencies.auth import get_optional_current_user
+from app.dependencies.storage import get_object_storage
 from app.models import ResourceType, User
 from app.schemas.file import FileRead, FileSummary
 from app.schemas.folder import FolderRead
 from app.schemas.share import ShareAccessResponse, SharedFolderContentsResponse
+from app.services.files import download_file_content
 from app.services.shares import (
     authorize_share_access,
     get_shared_folder_contents,
@@ -19,6 +23,7 @@ from app.services.shares import (
 router = APIRouter()
 db_session_dependency = Depends(get_db_session)
 optional_user_dependency = Depends(get_optional_current_user)
+object_storage_dependency = Depends(get_object_storage)
 
 
 @router.get("/s/{token}", response_model=ShareAccessResponse)
@@ -72,4 +77,27 @@ def access_shared_folder_contents(
             for item in files
         ],
         permission_level=share_link.permission_level,
+    )
+
+
+@router.get("/s/{token}/download")
+def download_shared_file(
+    token: str,
+    session: Session = db_session_dependency,
+    current_user: User | None = optional_user_dependency,
+    object_storage: ObjectStorage = object_storage_dependency,
+) -> StreamingResponse:
+    share_link = resolve_share_by_token(session, token)
+    authorize_share_access(share_link, current_user)
+    if share_link.resource_type is not ResourceType.FILE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Direct download is only available for file shares",
+        )
+    file = get_shared_resource(session, share_link)
+    data = download_file_content(object_storage, file)
+    return StreamingResponse(
+        iter([data]),
+        media_type=file.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{file.stored_filename}"'},
     )

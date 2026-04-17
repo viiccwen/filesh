@@ -24,13 +24,19 @@ def test_upload_init_finalize_and_get_file(client, session) -> None:
         },
     )
     assert init_response.status_code == 201
+    content_response = client.post(
+        f"/api/files/upload/{init_response.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("report.pdf", b"pdf-content", "application/pdf")},
+    )
+    assert content_response.status_code == 204
 
     finalize_response = client.post(
         "/api/files/upload/finalize",
         headers=headers,
         json={
             "upload_session_id": init_response.json()["session_id"],
-            "size_bytes": 128,
+            "size_bytes": 11,
             "checksum_sha256": "a" * 64,
         },
     )
@@ -44,6 +50,12 @@ def test_upload_init_finalize_and_get_file(client, session) -> None:
     )
     assert file_response.status_code == 200
     assert file_response.json()["checksum_sha256"] == "a" * 64
+    download_response = client.get(
+        f"/api/files/{finalize_response.json()['id']}/download",
+        headers=headers,
+    )
+    assert download_response.status_code == 200
+    assert download_response.content == b"pdf-content"
 
     upload_session = session.scalar(
         select(UploadSession).where(
@@ -63,6 +75,11 @@ def test_upload_init_auto_renames_on_collision(client, session) -> None:
         "/api/files/upload/init",
         headers=headers,
         json={"folder_id": str(folder_id), "filename": "report.pdf", "expected_size": 64},
+    )
+    client.post(
+        f"/api/files/upload/{first_init.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("report.pdf", b"x" * 64, "application/pdf")},
     )
     client.post(
         "/api/files/upload/finalize",
@@ -114,6 +131,25 @@ def test_upload_fail_marks_session_failed(client, session) -> None:
     assert upload_session.failure_reason == "network error"
 
 
+def test_upload_finalize_rejects_missing_uploaded_content(client) -> None:
+    headers = register_and_login(client, "missing-content@example.com", "missing-content-user")
+    root_response = client.get("/api/folders/root", headers=headers)
+    init_response = client.post(
+        "/api/files/upload/init",
+        headers=headers,
+        json={"folder_id": root_response.json()["id"], "filename": "file.txt", "expected_size": 10},
+    )
+
+    response = client.post(
+        "/api/files/upload/finalize",
+        headers=headers,
+        json={"upload_session_id": init_response.json()["session_id"], "size_bytes": 10},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Upload content not received"
+
+
 def test_upload_finalize_rejects_failed_session(client) -> None:
     headers = register_and_login(client, "failed-finalize@example.com", "failed-finalize-user")
     root_response = client.get("/api/folders/root", headers=headers)
@@ -149,6 +185,11 @@ def test_upload_finalize_rejects_second_finalize(client) -> None:
         headers=headers,
         json={"folder_id": root_response.json()["id"], "filename": "file.txt", "expected_size": 10},
     )
+    client.post(
+        f"/api/files/upload/{init_response.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("file.txt", b"0123456789", "text/plain")},
+    )
     first_finalize = client.post(
         "/api/files/upload/finalize",
         headers=headers,
@@ -175,13 +216,18 @@ def test_file_access_is_isolated_per_owner(client) -> None:
         json={
             "folder_id": root_response.json()["id"],
             "filename": "secret.txt",
-            "expected_size": 10,
+            "expected_size": 11,
         },
+    )
+    client.post(
+        f"/api/files/upload/{init_response.json()['session_id']}/content",
+        headers=owner_headers,
+        files={"file": ("secret.txt", b"secret-data", "text/plain")},
     )
     finalize_response = client.post(
         "/api/files/upload/finalize",
         headers=owner_headers,
-        json={"upload_session_id": init_response.json()["session_id"], "size_bytes": 10},
+        json={"upload_session_id": init_response.json()["session_id"], "size_bytes": 11},
     )
 
     response = client.get(
@@ -202,10 +248,15 @@ def test_delete_file_removes_resource_and_folder_contents_shows_file(client, ses
         headers=headers,
         json={"folder_id": str(folder_id), "filename": "notes.txt", "expected_size": 20},
     )
+    client.post(
+        f"/api/files/upload/{init_response.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("notes.txt", b"notes-content", "text/plain")},
+    )
     finalize_response = client.post(
         "/api/files/upload/finalize",
         headers=headers,
-        json={"upload_session_id": init_response.json()["session_id"], "size_bytes": 20},
+        json={"upload_session_id": init_response.json()["session_id"], "size_bytes": 13},
     )
 
     contents_response = client.get(f"/api/folders/{folder_id}/contents", headers=headers)
