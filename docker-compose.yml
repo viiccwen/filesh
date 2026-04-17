@@ -35,6 +35,7 @@ services:
     environment:
       UV_LINK_MODE: copy
       KAFKA_PUBLISHER_ENABLED: "true"
+      WORKER_METRICS_PORT: "9101"
     volumes:
       - ./backend:/app
       - backend-venv:/app/.venv

@@ -13,6 +13,8 @@ from app.workers.cleanup import (
     consume_cleanup_events,
     handle_cleanup_event,
     process_cleanup_message,
+    replay_dlq_events,
+    reset_event_for_replay,
     schedule_retry_event,
 )
 from tests_helpers import register_and_login
@@ -249,3 +251,74 @@ def test_build_dlq_event_adds_failure_metadata() -> None:
 
     assert dlq_event["metadata"]["dlq_reason"] == "fatal"
     assert "failed_at" in dlq_event["delivery"]
+
+
+def test_reset_event_for_replay_resets_delivery_state() -> None:
+    event = {
+        "event_type": "file.delete_requested",
+        "objects": [],
+        "delivery": {
+            "attempt": 5,
+            "max_retries": 5,
+            "scheduled_at": datetime.now(UTC).isoformat(),
+            "failed_at": datetime.now(UTC).isoformat(),
+            "last_error": "fatal",
+        },
+        "metadata": {"replay_count": 1},
+    }
+
+    replay_event = reset_event_for_replay(event)
+
+    assert replay_event["delivery"]["attempt"] == 0
+    assert "failed_at" not in replay_event["delivery"]
+    assert "last_error" not in replay_event["delivery"]
+    assert replay_event["metadata"]["replay_count"] == 2
+    assert replay_event["metadata"]["replayed_from_topic"] == "filesh.cleanup.dlq"
+
+
+def test_replay_dlq_events_republishes_to_cleanup_topic() -> None:
+    class FakeMessage:
+        topic = "filesh.cleanup.dlq"
+        offset = 7
+
+        def __init__(self, value) -> None:
+            self.value = value
+
+    class FakeConsumer:
+        def __init__(self, messages) -> None:
+            self._messages = iter(messages)
+            self.committed = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return next(self._messages)
+
+        def commit(self) -> None:
+            self.committed += 1
+
+    consumer = FakeConsumer(
+        [
+            FakeMessage(
+                {
+                    "event_type": "file.delete_requested",
+                    "objects": [],
+                    "metadata": {},
+                    "delivery": {
+                        "attempt": 5,
+                        "max_retries": 5,
+                        "scheduled_at": datetime.now(UTC).isoformat(),
+                    },
+                }
+            )
+        ]
+    )
+    publisher = InMemoryEventPublisher()
+
+    replayed = replay_dlq_events(consumer, publisher, limit=10)
+
+    assert replayed == 1
+    assert consumer.committed == 1
+    assert publisher.events[-1].topic == "filesh.cleanup"
+    assert publisher.events[-1].payload["delivery"]["attempt"] == 0

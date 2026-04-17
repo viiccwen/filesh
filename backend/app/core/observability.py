@@ -6,7 +6,8 @@ import time
 import uuid
 from typing import Any
 
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+from prometheus_client import start_http_server as prometheus_start_http_server
 from pythonjsonlogger.json import JsonFormatter
 
 from app.core.config import settings
@@ -35,6 +36,16 @@ cleanup_event_duration_seconds = Histogram(
     "filesh_cleanup_event_duration_seconds",
     "Cleanup worker processing latency in seconds.",
     ["event_type", "topic", "outcome"],
+)
+cleanup_consumer_lag_messages = Gauge(
+    "filesh_cleanup_consumer_lag_messages",
+    "Estimated cleanup consumer lag in messages.",
+    ["topic", "partition", "group_id"],
+)
+cleanup_consumer_offset = Gauge(
+    "filesh_cleanup_consumer_offset",
+    "Observed cleanup consumer and end offsets.",
+    ["topic", "partition", "group_id", "kind"],
 )
 
 
@@ -114,6 +125,32 @@ def observe_cleanup_event(
 
 def render_metrics() -> tuple[bytes, str]:
     return generate_latest(), CONTENT_TYPE_LATEST
+
+
+def start_metrics_server(port: int) -> None:
+    if not settings.metrics_enabled:
+        return
+    prometheus_start_http_server(port)
+
+
+def observe_cleanup_consumer_position(
+    *,
+    topic: str,
+    partition: int,
+    group_id: str,
+    current_offset: int,
+    end_offset: int,
+) -> None:
+    if not settings.metrics_enabled:
+        return
+    labels = {
+        "topic": topic,
+        "partition": str(partition),
+        "group_id": group_id,
+    }
+    cleanup_consumer_offset.labels(kind="current", **labels).set(current_offset)
+    cleanup_consumer_offset.labels(kind="end", **labels).set(end_offset)
+    cleanup_consumer_lag_messages.labels(**labels).set(max(end_offset - current_offset, 0))
 
 
 def request_log_extra(**extra: Any) -> dict[str, Any]:

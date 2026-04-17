@@ -12,8 +12,10 @@ from app.core.events import CleanupEventType, EventPublisher, KafkaEventPublishe
 from app.core.observability import (
     configure_logging,
     current_time,
+    observe_cleanup_consumer_position,
     observe_cleanup_event,
     request_log_extra,
+    start_metrics_server,
 )
 from app.core.storage import MinioObjectStorage, ObjectStorage
 
@@ -162,6 +164,45 @@ def build_cleanup_consumer():
     )
 
 
+def build_dlq_replay_consumer(*, consumer_timeout_ms: int = 1000):
+    from kafka import KafkaConsumer
+
+    return KafkaConsumer(
+        settings.kafka_cleanup_dlq_topic,
+        bootstrap_servers=settings.kafka_broker,
+        client_id=f"{settings.kafka_client_id}-dlq-replay",
+        group_id=settings.kafka_cleanup_replay_group_id,
+        value_deserializer=lambda value: json.loads(value.decode("utf-8")),
+        enable_auto_commit=False,
+        auto_offset_reset="earliest",
+        consumer_timeout_ms=consumer_timeout_ms,
+    )
+
+
+def observe_consumer_position(consumer, message) -> None:
+    topic = getattr(message, "topic", None)
+    partition = getattr(message, "partition", None)
+    offset = getattr(message, "offset", None)
+    if topic is None or partition is None or offset is None:
+        return
+    if not hasattr(consumer, "end_offsets"):
+        return
+    from kafka.structs import TopicPartition
+
+    topic_partition = TopicPartition(str(topic), int(partition))
+    end_offsets = consumer.end_offsets([topic_partition])
+    end_offset = end_offsets.get(topic_partition)
+    if end_offset is None:
+        return
+    observe_cleanup_consumer_position(
+        topic=str(topic),
+        partition=int(partition),
+        group_id=settings.kafka_cleanup_group_id,
+        current_offset=int(offset) + 1,
+        end_offset=int(end_offset),
+    )
+
+
 def process_cleanup_message(
     consumer,
     message,
@@ -172,6 +213,7 @@ def process_cleanup_message(
     started_at = current_time()
     topic = getattr(message, "topic", settings.kafka_cleanup_topic)
     event_type = str(event.get("event_type"))
+    observe_consumer_position(consumer, message)
     wait_until_scheduled(event)
     try:
         logger.info(
@@ -240,8 +282,56 @@ def consume_cleanup_events(
         process_cleanup_message(consumer, message, storage, publisher)
 
 
+def reset_event_for_replay(event: dict[str, Any]) -> dict[str, Any]:
+    replay_event = json.loads(json.dumps(event))
+    delivery = get_delivery_metadata(replay_event)
+    delivery["attempt"] = 0
+    delivery["scheduled_at"] = datetime.now(UTC).isoformat()
+    delivery.pop("failed_at", None)
+    delivery.pop("last_error", None)
+    metadata = replay_event.setdefault("metadata", {})
+    metadata["replayed_from_dlq_at"] = datetime.now(UTC).isoformat()
+    metadata["replayed_from_topic"] = settings.kafka_cleanup_dlq_topic
+    metadata["replay_count"] = int(metadata.get("replay_count", 0)) + 1
+    return replay_event
+
+
+def replay_dlq_events(
+    consumer,
+    publisher: EventPublisher,
+    *,
+    limit: int,
+    dry_run: bool = False,
+) -> int:
+    replayed = 0
+    for message in consumer:
+        event = message.value
+        replay_event = reset_event_for_replay(event)
+        if not dry_run:
+            publisher.publish(
+                settings.kafka_cleanup_topic,
+                get_event_key(replay_event, str(getattr(message, "offset", "replay"))),
+                replay_event,
+            )
+        consumer.commit()
+        replayed += 1
+        logger.info(
+            "replayed cleanup dlq event",
+            extra=request_log_extra(
+                event_type=str(event.get("event_type")),
+                original_topic=getattr(message, "topic", settings.kafka_cleanup_dlq_topic),
+                replayed_to=settings.kafka_cleanup_topic,
+                dry_run=dry_run,
+            ),
+        )
+        if replayed >= limit:
+            break
+    return replayed
+
+
 def run_cleanup_worker() -> None:
     configure_logging()
+    start_metrics_server(settings.worker_metrics_port)
     ensure_cleanup_topics()
     storage = MinioObjectStorage()
     publisher = KafkaEventPublisher()
@@ -252,5 +342,43 @@ def run_cleanup_worker() -> None:
         consumer.close()
 
 
-if __name__ == "__main__":
+def run_cleanup_dlq_replay(*, limit: int, dry_run: bool) -> int:
+    configure_logging()
+    publisher = KafkaEventPublisher()
+    consumer = build_dlq_replay_consumer()
+    try:
+        return replay_dlq_events(consumer, publisher, limit=limit, dry_run=dry_run)
+    finally:
+        consumer.close()
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run cleanup worker utilities.")
+    parser.add_argument(
+        "--replay-dlq",
+        action="store_true",
+        help="Replay cleanup events from the DLQ back into the primary cleanup topic.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=settings.kafka_cleanup_dlq_replay_limit,
+        help="Maximum number of DLQ events to replay in one run.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Inspect DLQ messages without publishing them back to the cleanup topic.",
+    )
+    args = parser.parse_args()
+
+    if args.replay_dlq:
+        run_cleanup_dlq_replay(limit=args.limit, dry_run=args.dry_run)
+        return
     run_cleanup_worker()
+
+
+if __name__ == "__main__":
+    main()

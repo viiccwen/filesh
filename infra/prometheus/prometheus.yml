@@ -7,6 +7,10 @@ scrape_configs:
       - targets: ["prometheus:9090"]
 
   - job_name: backend
-    metrics_path: /api/health
+    metrics_path: /metrics
     static_configs:
       - targets: ["backend:8000"]
+
+  - job_name: cleanup-worker
+    static_configs:
+      - targets: ["cleanup-worker:9101"]

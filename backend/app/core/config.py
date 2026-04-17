@@ -32,6 +32,10 @@ class Settings(BaseSettings):
         default="filesh-cleanup-worker",
         alias="KAFKA_CLEANUP_GROUP_ID",
     )
+    kafka_cleanup_replay_group_id: str = Field(
+        default="filesh-cleanup-dlq-replay",
+        alias="KAFKA_CLEANUP_REPLAY_GROUP_ID",
+    )
     kafka_cleanup_topic_partitions: int = Field(
         default=3,
         alias="KAFKA_CLEANUP_TOPIC_PARTITIONS",
@@ -60,10 +64,15 @@ class Settings(BaseSettings):
         default=300,
         alias="KAFKA_CLEANUP_RETRY_MAX_SECONDS",
     )
+    kafka_cleanup_dlq_replay_limit: int = Field(
+        default=100,
+        alias="KAFKA_CLEANUP_DLQ_REPLAY_LIMIT",
+    )
     kafka_publisher_enabled: bool = Field(default=False, alias="KAFKA_PUBLISHER_ENABLED")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_json: bool = Field(default=True, alias="LOG_JSON")
     metrics_enabled: bool = Field(default=True, alias="METRICS_ENABLED")
+    worker_metrics_port: int = Field(default=9101, alias="WORKER_METRICS_PORT")
     jwt_secret: str = Field(default=DEFAULT_JWT_SECRET, alias="JWT_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
