@@ -34,16 +34,18 @@ export function StatusPage({ kind }: { kind: keyof typeof statusCopy }) {
   const copy = statusCopy[kind];
 
   return (
-    <Card className="mx-auto max-w-2xl rounded-[2rem] border-border/70">
-      <CardHeader>
-        <CardTitle>{copy.title}</CardTitle>
-        <CardDescription>{copy.description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button asChild>
-          <Link to="/">Return home</Link>
-        </Button>
-      </CardContent>
-    </Card>
+    <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+      <Card className="mx-auto max-w-2xl rounded-[2rem] border-border/70">
+        <CardHeader>
+          <CardTitle>{copy.title}</CardTitle>
+          <CardDescription>{copy.description}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild>
+            <Link to="/">Return home</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
