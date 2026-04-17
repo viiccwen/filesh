@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.file import FileSummary
+
 
 class FolderCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
@@ -26,4 +28,4 @@ class FolderRead(BaseModel):
 class FolderContentsResponse(BaseModel):
     folder: FolderRead
     folders: list[FolderRead]
-    files: list[dict[str, object]]
+    files: list[FileSummary]

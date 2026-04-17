@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db_session
 from app.dependencies.auth import get_current_user
 from app.models import User
+from app.schemas.file import FileSummary
 from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
 from app.services.folders import (
     create_folder,
@@ -62,13 +63,13 @@ def get_contents(
         folder=FolderRead.model_validate(folder),
         folders=[FolderRead.model_validate(item) for item in folders],
         files=[
-            {
-                "id": item.id,
-                "stored_filename": item.stored_filename,
-                "content_type": item.content_type,
-                "size_bytes": item.size_bytes,
-                "status": item.status,
-            }
+            FileSummary(
+                id=item.id,
+                stored_filename=item.stored_filename,
+                content_type=item.content_type,
+                size_bytes=item.size_bytes,
+                status=item.status,
+            )
             for item in files
         ],
     )
