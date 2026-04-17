@@ -7,8 +7,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.core.events import EventPublisher
 from app.core.storage import ObjectStorage
 from app.dependencies.auth import get_current_user
+from app.dependencies.events import get_event_publisher
 from app.dependencies.storage import get_object_storage
 from app.models import ResourceType, User
 from app.schemas.file import (
@@ -34,6 +36,7 @@ router = APIRouter()
 db_session_dependency = Depends(get_db_session)
 current_user_dependency = Depends(get_current_user)
 object_storage_dependency = Depends(get_object_storage)
+event_publisher_dependency = Depends(get_event_publisher)
 
 
 @router.post("/upload/init", response_model=UploadInitResponse, status_code=status.HTTP_201_CREATED)
@@ -86,8 +89,9 @@ def upload_fail(
     payload: UploadFailRequest,
     session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
+    event_publisher: EventPublisher = event_publisher_dependency,
 ) -> Response:
-    fail_upload(session, current_user, payload)
+    fail_upload(session, current_user, payload, event_publisher)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -122,9 +126,9 @@ def remove_file(
     file_id: uuid.UUID,
     session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
-    object_storage: ObjectStorage = object_storage_dependency,
+    event_publisher: EventPublisher = event_publisher_dependency,
 ) -> Response:
-    delete_file(session, file_id, current_user.id, object_storage)
+    delete_file(session, file_id, current_user.id, event_publisher)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

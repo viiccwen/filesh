@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
 from app.core.storage import ObjectStorage
 from app.models import File, FileStatus, UploadSession, UploadSessionStatus, User
 from app.schemas.file import UploadFailRequest, UploadFinalizeRequest, UploadInitRequest
@@ -200,7 +201,12 @@ def upload_content(
     return upload_session
 
 
-def fail_upload(session: Session, owner: User, payload: UploadFailRequest) -> UploadSession:
+def fail_upload(
+    session: Session,
+    owner: User,
+    payload: UploadFailRequest,
+    event_publisher: EventPublisher,
+) -> UploadSession:
     upload_session = get_upload_session_for_owner(session, payload.upload_session_id, owner.id)
     if upload_session.status is UploadSessionStatus.FINALIZED:
         raise HTTPException(
@@ -212,6 +218,21 @@ def fail_upload(session: Session, owner: User, payload: UploadFailRequest) -> Up
     upload_session.failure_reason = payload.failure_reason
     session.commit()
     session.refresh(upload_session)
+    event_publisher.publish(
+        settings.kafka_cleanup_topic,
+        str(upload_session.id),
+        build_cleanup_event(
+            CleanupEventType.UPLOAD_FAILED,
+            resource={"type": "upload_session", "id": str(upload_session.id)},
+            objects=[
+                {
+                    "bucket": settings.minio_bucket,
+                    "object_key": upload_session.object_key,
+                }
+            ],
+            metadata={"owner_id": str(upload_session.owner_id)},
+        ),
+    )
     return upload_session
 
 
@@ -231,9 +252,15 @@ def delete_file(
     session: Session,
     file_id: uuid.UUID,
     owner_id: uuid.UUID,
-    storage: ObjectStorage,
+    event_publisher: EventPublisher,
 ) -> None:
     file = get_file_for_owner(session, file_id, owner_id)
-    storage.delete_object(file.storage_bucket, file.object_key)
+    event = build_cleanup_event(
+        CleanupEventType.FILE_DELETE_REQUESTED,
+        resource={"type": "file", "id": str(file.id)},
+        objects=[{"bucket": file.storage_bucket, "object_key": file.object_key}],
+        metadata={"owner_id": str(file.owner_id), "folder_id": str(file.folder_id)},
+    )
     session.delete(file)
     session.commit()
+    event_publisher.publish(settings.kafka_cleanup_topic, str(file.id), event)

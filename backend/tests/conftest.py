@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.db import get_db_session
+from app.core.events import InMemoryEventPublisher
 from app.core.storage import ObjectStorage, StoredObject
+from app.dependencies.events import get_event_publisher
 from app.dependencies.storage import get_object_storage
 from app.main import app
 from app.models.base import Base
@@ -64,8 +66,21 @@ def session() -> Iterator[Session]:
 
 
 @pytest.fixture()
-def client(session: Session) -> Iterator[TestClient]:
-    object_storage = InMemoryObjectStorage()
+def object_storage() -> InMemoryObjectStorage:
+    return InMemoryObjectStorage()
+
+
+@pytest.fixture()
+def event_publisher() -> InMemoryEventPublisher:
+    return InMemoryEventPublisher()
+
+
+@pytest.fixture()
+def client(
+    session: Session,
+    object_storage: InMemoryObjectStorage,
+    event_publisher: InMemoryEventPublisher,
+) -> Iterator[TestClient]:
 
     def override_get_db_session() -> Iterator[Session]:
         yield session
@@ -73,8 +88,12 @@ def client(session: Session) -> Iterator[TestClient]:
     def override_get_object_storage() -> InMemoryObjectStorage:
         return object_storage
 
+    def override_get_event_publisher() -> InMemoryEventPublisher:
+        return event_publisher
+
     app.dependency_overrides[get_db_session] = override_get_db_session
     app.dependency_overrides[get_object_storage] = override_get_object_storage
+    app.dependency_overrides[get_event_publisher] = override_get_event_publisher
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

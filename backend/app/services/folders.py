@@ -7,7 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import File, Folder, User
+from app.core.config import settings
+from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
+from app.models import File, Folder, UploadSession, User
 from app.schemas.folder import FolderCreateRequest
 
 ROOT_FOLDER_NAME = "/"
@@ -114,7 +116,37 @@ def list_folder_contents(
     return folder, child_folders, files
 
 
-def delete_folder(session: Session, folder_id: uuid.UUID, owner_id: uuid.UUID) -> None:
+def list_descendant_folder_ids(
+    session: Session,
+    owner_id: uuid.UUID,
+    folder: Folder,
+) -> list[uuid.UUID]:
+    path_prefix = folder.path_cache
+    return list(
+        session.scalars(
+            select(Folder.id).where(
+                Folder.owner_id == owner_id,
+                (
+                    (Folder.path_cache == path_prefix)
+                    | Folder.path_cache.startswith(f"{path_prefix}/")
+                ),
+            )
+        )
+    )
+
+
+def list_descendant_files(session: Session, folder_ids: list[uuid.UUID]) -> list[File]:
+    if not folder_ids:
+        return []
+    return list(session.scalars(select(File).where(File.folder_id.in_(folder_ids))))
+
+
+def delete_folder(
+    session: Session,
+    folder_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    event_publisher: EventPublisher,
+) -> None:
     folder = get_folder_for_owner(session, folder_id, owner_id)
     if folder.parent_id is None and folder.name == ROOT_FOLDER_NAME:
         raise HTTPException(
@@ -122,5 +154,21 @@ def delete_folder(session: Session, folder_id: uuid.UUID, owner_id: uuid.UUID) -
             detail="Root folder cannot be deleted",
         )
 
+    folder_ids = list_descendant_folder_ids(session, owner_id, folder)
+    files_to_cleanup = list_descendant_files(session, folder_ids)
+    event = build_cleanup_event(
+        CleanupEventType.FOLDER_DELETE_REQUESTED,
+        resource={"type": "folder", "id": str(folder.id)},
+        objects=[
+            {"bucket": file.storage_bucket, "object_key": file.object_key}
+            for file in files_to_cleanup
+        ],
+        metadata={"owner_id": str(owner_id)},
+    )
+    for upload_session in session.scalars(
+        select(UploadSession).where(UploadSession.folder_id.in_(folder_ids))
+    ):
+        session.delete(upload_session)
     session.delete(folder)
     session.commit()
+    event_publisher.publish(settings.kafka_cleanup_topic, str(folder.id), event)

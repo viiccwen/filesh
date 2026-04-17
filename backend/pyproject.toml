@@ -16,6 +16,7 @@ dependencies = [
   "bcrypt>=5.0.0",
   "minio>=7.2.20",
   "python-multipart>=0.0.26",
+  "kafka-python-ng>=2.2.3",
 ]
 
 [dependency-groups]

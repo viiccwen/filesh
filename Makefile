@@ -1,4 +1,4 @@
-.PHONY: up down logs ps backend frontend test lint format compose-config migrate pre-commit-install pre-commit-run
+.PHONY: up down logs ps backend frontend test lint format compose-config migrate pre-commit pre-commit-install pre-commit-run
 
 up:
 	docker compose --env-file .env up --build -d
@@ -34,6 +34,8 @@ compose-config:
 
 migrate:
 	docker compose --env-file .env run --rm backend uv run alembic upgrade head
+
+pre-commit: pre-commit-run
 
 pre-commit-install:
 	cd backend && uv run pre-commit install --config ../.pre-commit-config.yaml

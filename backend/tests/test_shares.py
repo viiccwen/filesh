@@ -223,3 +223,107 @@ def test_share_get_update_returns_redacted_url_for_owner(client) -> None:
     assert patch_response.status_code == 200
     assert patch_response.json()["share_mode"] == "USER_ONLY"
     assert patch_response.json()["resource_type"] == ResourceType.FOLDER
+
+
+def test_folder_share_upload_permission_allows_creating_subfolder(client) -> None:
+    headers = register_and_login(client, "upload-share@example.com", "upload-share-user")
+    folder_response = client.post("/api/folders", headers=headers, json={"name": "dropbox"})
+    share_response = client.post(
+        f"/api/folders/{folder_response.json()['id']}/share",
+        headers=headers,
+        json={
+            "share_mode": "GUEST",
+            "permission_level": "UPLOAD",
+            "expiry": "never",
+            "invitation_emails": [],
+        },
+    )
+    token = share_response.json()["share_url"].split("/s/")[1]
+
+    create_response = client.post(
+        f"/s/{token}/folders",
+        json={"name": "guest-child"},
+    )
+    contents_response = client.get(f"/s/{token}/contents")
+
+    assert create_response.status_code == 201
+    assert create_response.json()["path_cache"] == "/dropbox/guest-child"
+    assert [item["name"] for item in contents_response.json()["folders"]] == ["guest-child"]
+
+
+def test_file_share_overrides_folder_share_policy(client) -> None:
+    owner_headers = register_and_login(client, "matrix-owner@example.com", "matrix-owner-user")
+    invited_headers = register_and_login(
+        client,
+        "matrix-invited@example.com",
+        "matrix-invited-user",
+    )
+    other_headers = register_and_login(client, "matrix-other@example.com", "matrix-other-user")
+
+    folder_response = client.post(
+        "/api/folders",
+        headers=owner_headers,
+        json={"name": "shared-root"},
+    )
+    init_response = client.post(
+        "/api/files/upload/init",
+        headers=owner_headers,
+        json={
+            "folder_id": folder_response.json()["id"],
+            "filename": "matrix.txt",
+            "expected_size": 6,
+        },
+    )
+    client.post(
+        f"/api/files/upload/{init_response.json()['session_id']}/content",
+        headers=owner_headers,
+        files={"file": ("matrix.txt", b"secret", "text/plain")},
+    )
+    finalize_response = client.post(
+        "/api/files/upload/finalize",
+        headers=owner_headers,
+        json={"upload_session_id": init_response.json()["session_id"], "size_bytes": 6},
+    )
+
+    folder_share = client.post(
+        f"/api/folders/{folder_response.json()['id']}/share",
+        headers=owner_headers,
+        json={
+            "share_mode": "GUEST",
+            "permission_level": "VIEW_DOWNLOAD",
+            "expiry": "never",
+            "invitation_emails": [],
+        },
+    )
+    file_share = client.post(
+        f"/api/files/{finalize_response.json()['id']}/share",
+        headers=owner_headers,
+        json={
+            "share_mode": "EMAIL_INVITATION",
+            "permission_level": "DELETE",
+            "expiry": "never",
+            "invitation_emails": ["matrix-invited@example.com"],
+        },
+    )
+    token = folder_share.json()["share_url"].split("/s/")[1]
+
+    guest_metadata = client.get(f"/s/{token}/files/{finalize_response.json()['id']}")
+    invited_metadata = client.get(
+        f"/s/{token}/files/{finalize_response.json()['id']}",
+        headers=invited_headers,
+    )
+    other_metadata = client.get(
+        f"/s/{token}/files/{finalize_response.json()['id']}",
+        headers=other_headers,
+    )
+    delete_response = client.delete(
+        f"/s/{token}/files/{finalize_response.json()['id']}",
+        headers=invited_headers,
+    )
+
+    assert folder_share.status_code == 201
+    assert file_share.status_code == 201
+    assert guest_metadata.status_code == 403
+    assert invited_metadata.status_code == 200
+    assert other_metadata.status_code == 403
+    assert delete_response.status_code == 204

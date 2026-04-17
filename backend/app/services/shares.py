@@ -12,15 +12,28 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import (
     File,
     Folder,
+    PermissionLevel,
     ResourceType,
     ShareInvitation,
     ShareLink,
     ShareMode,
     User,
 )
+from app.schemas.folder import FolderCreateRequest
 from app.schemas.share import ShareRead, ShareUpsertRequest
 from app.services.files import get_file_for_owner
-from app.services.folders import get_folder_for_owner, list_folder_contents
+from app.services.folders import (
+    ROOT_FOLDER_NAME,
+    create_folder,
+    get_folder_for_owner,
+    list_folder_contents,
+)
+
+PERMISSION_RANK = {
+    PermissionLevel.VIEW_DOWNLOAD: 1,
+    PermissionLevel.UPLOAD: 2,
+    PermissionLevel.DELETE: 3,
+}
 
 
 def hash_share_token(raw_token: str) -> str:
@@ -271,6 +284,19 @@ def authorize_share_access(share_link: ShareLink, requester: User | None) -> Non
         )
 
 
+def authorize_share_permission(
+    share_link: ShareLink,
+    requester: User | None,
+    required_permission: PermissionLevel,
+) -> None:
+    authorize_share_access(share_link, requester)
+    if PERMISSION_RANK[share_link.permission_level] < PERMISSION_RANK[required_permission]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Share permission denied",
+        )
+
+
 def get_shared_resource(
     session: Session,
     share_link: ShareLink,
@@ -302,3 +328,110 @@ def get_shared_folder_contents(
         share_link.owner_id,
     )
     return folder, folders, files
+
+
+def is_folder_within_shared_tree(root_folder: Folder, candidate_folder: Folder) -> bool:
+    if root_folder.owner_id != candidate_folder.owner_id:
+        return False
+    if root_folder.path_cache == "/":
+        return True
+    if candidate_folder.path_cache is None or root_folder.path_cache is None:
+        return False
+    return (
+        candidate_folder.path_cache == root_folder.path_cache
+        or candidate_folder.path_cache.startswith(f"{root_folder.path_cache}/")
+    )
+
+
+def get_shared_folder_target(
+    session: Session,
+    share_link: ShareLink,
+    folder_id: uuid.UUID | None = None,
+) -> Folder:
+    if share_link.resource_type is not ResourceType.FOLDER:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Shared resource is not a folder",
+        )
+
+    root_folder = session.scalar(select(Folder).where(Folder.id == share_link.resource_id))
+    if root_folder is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+    if folder_id is None or folder_id == root_folder.id:
+        return root_folder
+
+    folder = session.scalar(
+        select(Folder).where(Folder.id == folder_id, Folder.owner_id == share_link.owner_id)
+    )
+    if folder is None or not is_folder_within_shared_tree(root_folder, folder):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+    return folder
+
+
+def get_shared_file_target(session: Session, share_link: ShareLink, file_id: uuid.UUID) -> File:
+    file = session.scalar(
+        select(File).where(File.id == file_id, File.owner_id == share_link.owner_id)
+    )
+    if file is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+
+    folder = session.scalar(select(Folder).where(Folder.id == file.folder_id))
+    root_folder = get_shared_folder_target(session, share_link)
+    if folder is None or not is_folder_within_shared_tree(root_folder, folder):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+    return file
+
+
+def resolve_effective_file_share(
+    session: Session,
+    folder_share_link: ShareLink,
+    file: File,
+) -> ShareLink:
+    file_share = get_active_share_for_resource(session, ResourceType.FILE, file.id)
+    if file_share is not None:
+        return file_share
+    return folder_share_link
+
+
+def resolve_shared_file_action(
+    session: Session,
+    share_link: ShareLink,
+    file_id: uuid.UUID,
+    requester: User | None,
+    required_permission: PermissionLevel,
+) -> tuple[File, ShareLink]:
+    file = get_shared_file_target(session, share_link, file_id)
+    effective_share = resolve_effective_file_share(session, share_link, file)
+    authorize_share_permission(effective_share, requester, required_permission)
+    return file, effective_share
+
+
+def get_shared_folder_contents_for_target(
+    session: Session,
+    share_link: ShareLink,
+    requester: User | None,
+    folder_id: uuid.UUID | None = None,
+) -> tuple[Folder, list[Folder], list[File]]:
+    authorize_share_permission(share_link, requester, PermissionLevel.VIEW_DOWNLOAD)
+    folder = get_shared_folder_target(session, share_link, folder_id)
+    return list_folder_contents(session, folder.id, share_link.owner_id)
+
+
+def create_shared_subfolder(
+    session: Session,
+    share_link: ShareLink,
+    requester: User | None,
+    payload: FolderCreateRequest,
+) -> Folder:
+    authorize_share_permission(share_link, requester, PermissionLevel.UPLOAD)
+    parent_folder = get_shared_folder_target(session, share_link, payload.parent_id)
+    if payload.name == ROOT_FOLDER_NAME:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Folder name is reserved",
+        )
+    return create_folder(
+        session,
+        share_link.owner,
+        FolderCreateRequest(name=payload.name, parent_id=parent_folder.id),
+    )
