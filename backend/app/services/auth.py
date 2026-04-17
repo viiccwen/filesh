@@ -13,6 +13,7 @@ from app.core.security import (
 from app.models import User
 from app.schemas.auth import AccessTokenResponse, LoginRequest, RegisterRequest
 from app.schemas.user import UserRead
+from app.services.folders import create_root_folder
 
 
 def register_user(session: Session, payload: RegisterRequest) -> User:
@@ -32,6 +33,8 @@ def register_user(session: Session, payload: RegisterRequest) -> User:
         password_hash=hash_password(payload.password),
     )
     session.add(user)
+    session.flush()
+    create_root_folder(session, user)
     session.commit()
     session.refresh(user)
     return user
