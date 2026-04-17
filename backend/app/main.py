@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.api.v1.share_access import router as share_access_router
 from app.core.config import settings
 
 app = FastAPI(
@@ -18,6 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(share_access_router)
 
 
 @app.get("/", tags=["system"])

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.dependencies.auth import get_current_user
-from app.models import User
+from app.models import ResourceType, User
 from app.schemas.file import (
     FileRead,
     UploadFailRequest,
@@ -15,6 +15,7 @@ from app.schemas.file import (
     UploadInitRequest,
     UploadInitResponse,
 )
+from app.schemas.share import ShareRead, ShareUpsertRequest
 from app.services.files import (
     delete_file,
     fail_upload,
@@ -22,6 +23,7 @@ from app.services.files import (
     get_file_for_owner,
     init_upload,
 )
+from app.services.shares import create_share, get_share, revoke_share, update_share
 
 router = APIRouter()
 db_session_dependency = Depends(get_db_session)
@@ -80,4 +82,43 @@ def remove_file(
     current_user: User = current_user_dependency,
 ) -> Response:
     delete_file(session, file_id, current_user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{file_id}/share", response_model=ShareRead)
+def get_file_share(
+    file_id: uuid.UUID,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+) -> ShareRead:
+    return get_share(session, current_user, ResourceType.FILE, file_id)
+
+
+@router.post("/{file_id}/share", response_model=ShareRead, status_code=status.HTTP_201_CREATED)
+def create_file_share(
+    file_id: uuid.UUID,
+    payload: ShareUpsertRequest,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+) -> ShareRead:
+    return create_share(session, current_user, ResourceType.FILE, file_id, payload)
+
+
+@router.patch("/{file_id}/share", response_model=ShareRead)
+def update_file_share(
+    file_id: uuid.UUID,
+    payload: ShareUpsertRequest,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+) -> ShareRead:
+    return update_share(session, current_user, ResourceType.FILE, file_id, payload)
+
+
+@router.delete("/{file_id}/share", status_code=status.HTTP_204_NO_CONTENT)
+def delete_file_share(
+    file_id: uuid.UUID,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+) -> Response:
+    revoke_share(session, current_user, ResourceType.FILE, file_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

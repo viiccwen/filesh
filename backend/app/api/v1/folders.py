@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.dependencies.auth import get_current_user
-from app.models import User
+from app.models import ResourceType, User
 from app.schemas.file import FileSummary
 from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
+from app.schemas.share import ShareRead, ShareUpsertRequest
 from app.services.folders import (
     create_folder,
     delete_folder,
@@ -17,6 +18,7 @@ from app.services.folders import (
     get_or_create_root_folder,
     list_folder_contents,
 )
+from app.services.shares import create_share, get_share, revoke_share, update_share
 
 router = APIRouter()
 db_session_dependency = Depends(get_db_session)
@@ -82,4 +84,43 @@ def remove_folder(
     current_user: User = current_user_dependency,
 ) -> Response:
     delete_folder(session, folder_id, current_user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{folder_id}/share", response_model=ShareRead)
+def get_folder_share(
+    folder_id: uuid.UUID,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+) -> ShareRead:
+    return get_share(session, current_user, ResourceType.FOLDER, folder_id)
+
+
+@router.post("/{folder_id}/share", response_model=ShareRead, status_code=status.HTTP_201_CREATED)
+def create_folder_share(
+    folder_id: uuid.UUID,
+    payload: ShareUpsertRequest,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+) -> ShareRead:
+    return create_share(session, current_user, ResourceType.FOLDER, folder_id, payload)
+
+
+@router.patch("/{folder_id}/share", response_model=ShareRead)
+def update_folder_share(
+    folder_id: uuid.UUID,
+    payload: ShareUpsertRequest,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+) -> ShareRead:
+    return update_share(session, current_user, ResourceType.FOLDER, folder_id, payload)
+
+
+@router.delete("/{folder_id}/share", status_code=status.HTTP_204_NO_CONTENT)
+def delete_folder_share(
+    folder_id: uuid.UUID,
+    session: Session = db_session_dependency,
+    current_user: User = current_user_dependency,
+) -> Response:
+    revoke_share(session, current_user, ResourceType.FOLDER, folder_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

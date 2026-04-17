@@ -17,15 +17,12 @@ db_session_dependency = Depends(get_db_session)
 bearer_dependency = Depends(bearer_scheme)
 
 
-def get_current_user(
+def resolve_current_user(
     session: Session = db_session_dependency,
     credentials: HTTPAuthorizationCredentials | None = bearer_dependency,
-) -> User:
+) -> User | None:
     if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-        )
+        return None
 
     try:
         payload = decode_token(credentials.credentials, expected_type="access")
@@ -41,3 +38,25 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     return user
+
+
+def get_current_user(
+    session: Session = db_session_dependency,
+    credentials: HTTPAuthorizationCredentials | None = bearer_dependency,
+) -> User:
+    user = resolve_current_user(session, credentials)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    return user
+
+
+def get_optional_current_user(
+    session: Session = db_session_dependency,
+    credentials: HTTPAuthorizationCredentials | None = bearer_dependency,
+) -> User | None:
+    if credentials is None:
+        return None
+    return resolve_current_user(session, credentials)
