@@ -14,6 +14,8 @@ class FileSummary(BaseModel):
     content_type: str | None
     size_bytes: int
     status: FileStatus
+    created_at: datetime
+    updated_at: datetime
 
 
 class FileRead(BaseModel):

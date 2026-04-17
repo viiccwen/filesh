@@ -9,9 +9,11 @@ import {
 import {
   folderContentsSchema,
   folderSchema,
+  shareFormSchema,
   shareSchema,
   type Folder,
   type FolderContents,
+  type ShareFormValues,
   type Share,
 } from "@/features/workspace/schemas";
 
@@ -221,15 +223,40 @@ export function createGuestFolderShare(
   accessToken: string,
   folderId: string,
 ): Promise<Share> {
+  return updateFolderShare(accessToken, folderId, {
+    share_mode: "GUEST",
+    permission_level: "VIEW_DOWNLOAD",
+    expiry: "never",
+    invitation_emails: [],
+  });
+}
+
+export function updateFolderShare(
+  accessToken: string,
+  folderId: string,
+  payload: ShareFormValues,
+): Promise<Share> {
+  const normalizedPayload = shareFormSchema.parse(payload);
+
+  return request<Share>(`/api/folders/${folderId}/share`, {
+    method: "PATCH",
+    accessToken,
+    body: JSON.stringify(normalizedPayload),
+    parse: (value) => shareSchema.parse(value),
+  });
+}
+
+export function createFolderShare(
+  accessToken: string,
+  folderId: string,
+  payload: ShareFormValues,
+): Promise<Share> {
+  const normalizedPayload = shareFormSchema.parse(payload);
+
   return request<Share>(`/api/folders/${folderId}/share`, {
     method: "POST",
     accessToken,
-    body: JSON.stringify({
-      share_mode: "GUEST",
-      permission_level: "VIEW_DOWNLOAD",
-      expiry: "never",
-      invitation_emails: [],
-    }),
+    body: JSON.stringify(normalizedPayload),
     parse: (value) => shareSchema.parse(value),
   });
 }

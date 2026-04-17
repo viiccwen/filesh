@@ -28,6 +28,8 @@ def to_file_summary(file: File) -> FileSummaryDTO:
         content_type=file.content_type,
         size_bytes=file.size_bytes,
         status=file.status,
+        created_at=file.created_at,
+        updated_at=file.updated_at,
     )
 
 

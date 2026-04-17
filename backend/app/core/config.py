@@ -100,6 +100,10 @@ class Settings(BaseSettings):
         default="http://localhost:5173",
         alias="BACKEND_CORS_ORIGINS",
     )
+    backend_cors_origin_regex: str = Field(
+        default=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        alias="BACKEND_CORS_ORIGIN_REGEX",
+    )
 
     @property
     def cors_origins(self) -> list[str]:

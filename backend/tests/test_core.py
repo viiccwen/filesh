@@ -26,6 +26,12 @@ def test_cors_origins_parses_csv_values() -> None:
     assert config.cors_origins == ["http://localhost:5173", "https://example.com"]
 
 
+def test_cors_origin_regex_defaults_to_localhost_and_loopback_ports() -> None:
+    config = Settings()
+
+    assert config.backend_cors_origin_regex == r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+
 def test_password_hashing_roundtrip_and_failure() -> None:
     password_hash = hash_password("secret123")
 

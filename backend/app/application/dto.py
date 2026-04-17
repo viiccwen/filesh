@@ -42,6 +42,8 @@ class FileSummaryDTO(BaseModel):
     content_type: str | None
     size_bytes: int
     status: FileStatus
+    created_at: datetime
+    updated_at: datetime
 
 
 class FileDTO(BaseModel):

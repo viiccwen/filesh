@@ -16,6 +16,8 @@ export const fileSummarySchema = z.object({
   content_type: z.string().nullable(),
   size_bytes: z.number(),
   status: z.enum(["PENDING", "ACTIVE", "FAILED", "DELETING"]),
+  created_at: z.string(),
+  updated_at: z.string(),
 });
 
 export const folderContentsSchema = z.object({
@@ -36,7 +38,15 @@ export const shareSchema = z.object({
   share_url: z.string(),
 });
 
+export const shareFormSchema = z.object({
+  share_mode: z.enum(["GUEST", "USER_ONLY", "EMAIL_INVITATION"]),
+  permission_level: z.enum(["VIEW_DOWNLOAD", "UPLOAD", "DELETE"]),
+  expiry: z.enum(["hour", "day", "never"]),
+  invitation_emails: z.array(z.email()).default([]),
+});
+
 export type Folder = z.infer<typeof folderSchema>;
 export type FileSummary = z.infer<typeof fileSummarySchema>;
 export type FolderContents = z.infer<typeof folderContentsSchema>;
 export type Share = z.infer<typeof shareSchema>;
+export type ShareFormValues = z.infer<typeof shareFormSchema>;
