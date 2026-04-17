@@ -11,8 +11,8 @@ export default function App() {
         <p className="eyebrow">filesh</p>
         <h1>File sharing system scaffold is ready to evolve.</h1>
         <p className="lede">
-          This starter focuses on infra first, so we can layer auth, uploads, sharing,
-          observability, and cleanup workflows on a stable foundation.
+          This starter focuses on infra first, so we can layer auth, uploads,
+          sharing, observability, and cleanup workflows on a stable foundation.
         </p>
       </section>
 

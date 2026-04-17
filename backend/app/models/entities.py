@@ -46,7 +46,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         cascade="all, delete-orphan",
         foreign_keys="File.owner_id",
     )
-    uploaded_files: Mapped[list[File]] = relationship(foreign_keys="File.uploaded_by")
+    uploaded_files: Mapped[list[File]] = relationship(
+        foreign_keys="File.uploaded_by",
+        back_populates="uploader",
+    )
     share_links: Mapped[list[ShareLink]] = relationship(
         back_populates="owner",
         cascade="all, delete-orphan",
@@ -116,7 +119,10 @@ class File(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     owner: Mapped[User] = relationship(back_populates="files", foreign_keys=[owner_id])
     folder: Mapped[Folder] = relationship(back_populates="files")
-    uploader: Mapped[User] = relationship(foreign_keys=[uploaded_by])
+    uploader: Mapped[User] = relationship(
+        foreign_keys=[uploaded_by],
+        back_populates="uploaded_files",
+    )
     upload_sessions: Mapped[list[UploadSession]] = relationship(back_populates="file")
 
 

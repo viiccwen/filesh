@@ -28,3 +28,4 @@ loki-data/
 .agents
 skills-lock.json
 .pnpm-store
+IMPLEMENTATION_CHECKLIST.md
