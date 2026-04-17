@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLineIcon,
-  ArrowLeftIcon,
   ChevronRightIcon,
-  ChevronsLeftRightEllipsisIcon,
   FolderIcon,
+  FolderOpenIcon,
   FolderPlusIcon,
   Link2Icon,
   Loader2Icon,
   LogOutIcon,
+  MoreHorizontalIcon,
   SearchIcon,
-  ShieldCheckIcon,
+  SparklesIcon,
   UploadIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,18 +18,31 @@ import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
   Empty,
-  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -65,6 +78,7 @@ import { useAuthStore } from "@/features/auth/store";
 import { ShareManagementSheet } from "@/features/workspace/components/share-management-sheet";
 import {
   shareFormSchema,
+  type FileSummary,
   type Folder,
   type FolderContents,
   type Share,
@@ -84,15 +98,6 @@ import {
 } from "@/lib/api";
 import { formatBytes, formatDate, getInitials } from "@/lib/format";
 
-type WorkspaceItem = {
-  id: string;
-  kind: "file" | "folder";
-  name: string;
-  size: number | null;
-  status: string;
-  updatedAt: string;
-};
-
 type FolderNode = {
   folder: Folder;
   childFolderIds: string[];
@@ -100,12 +105,32 @@ type FolderNode = {
 
 type SortKey = "name" | "updatedAt" | "size" | "kind";
 
-const PAGE_SIZE_OPTIONS = ["5", "10", "20"];
+type WorkspaceItem =
+  | {
+      id: string;
+      kind: "folder";
+      name: string;
+      updatedAt: string;
+      folder: Folder;
+    }
+  | {
+      id: string;
+      kind: "file";
+      name: string;
+      size: number;
+      status: string;
+      updatedAt: string;
+      file: FileSummary;
+    };
+
+const PAGE_SIZE_OPTIONS = ["8", "16", "24"];
 
 export function WorkspaceScreen() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const [rootFolderId, setRootFolderId] = useState<string | null>(null);
   const [contents, setContents] = useState<FolderContents | null>(null);
@@ -120,7 +145,7 @@ export function WorkspaceScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(8);
   const [pageIndex, setPageIndex] = useState(1);
   const [folderTree, setFolderTree] = useState<Record<string, FolderNode>>({});
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(
@@ -149,9 +174,8 @@ export function WorkspaceScreen() {
         id: folder.id,
         kind: "folder" as const,
         name: folder.name,
-        size: null,
-        status: "READY",
         updatedAt: folder.updated_at,
+        folder,
       })),
       ...contents.files.map((file) => ({
         id: file.id,
@@ -160,13 +184,13 @@ export function WorkspaceScreen() {
         size: file.size_bytes,
         status: file.status,
         updatedAt: file.updated_at,
+        file,
       })),
     ];
   }, [contents]);
 
   const filteredItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
-
     return items.filter((item) =>
       normalizedQuery
         ? item.name.toLowerCase().includes(normalizedQuery)
@@ -176,26 +200,30 @@ export function WorkspaceScreen() {
 
   const sortedItems = useMemo(() => {
     const nextItems = [...filteredItems];
-    const directionFactor = sortDirection === "asc" ? 1 : -1;
+    const factor = sortDirection === "asc" ? 1 : -1;
 
     nextItems.sort((left, right) => {
       switch (sortKey) {
         case "kind":
-          return left.kind.localeCompare(right.kind) * directionFactor;
+          return left.kind.localeCompare(right.kind) * factor;
         case "size":
-          return ((left.size ?? -1) - (right.size ?? -1)) * directionFactor;
+          return (
+            (("size" in left ? left.size : -1) -
+              ("size" in right ? right.size : -1)) *
+            factor
+          );
         case "updatedAt":
           return (
             (new Date(left.updatedAt).getTime() -
               new Date(right.updatedAt).getTime()) *
-            directionFactor
+            factor
           );
         case "name":
         default:
           return (
             left.name.localeCompare(right.name, undefined, {
               sensitivity: "base",
-            }) * directionFactor
+            }) * factor
           );
       }
     });
@@ -205,9 +233,36 @@ export function WorkspaceScreen() {
 
   const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
   const paginatedItems = useMemo(() => {
-    const startIndex = (pageIndex - 1) * pageSize;
-    return sortedItems.slice(startIndex, startIndex + pageSize);
+    const start = (pageIndex - 1) * pageSize;
+    return sortedItems.slice(start, start + pageSize);
   }, [pageIndex, pageSize, sortedItems]);
+
+  const folderItems = paginatedItems.filter(
+    (item): item is Extract<WorkspaceItem, { kind: "folder" }> =>
+      item.kind === "folder",
+  );
+  const fileItems = paginatedItems.filter(
+    (item): item is Extract<WorkspaceItem, { kind: "file" }> =>
+      item.kind === "file",
+  );
+
+  const breadcrumbFolders = useMemo(() => {
+    if (!contents) {
+      return [];
+    }
+
+    const chain: Folder[] = [];
+    let currentFolder: Folder | undefined = contents.folder;
+
+    while (currentFolder) {
+      chain.unshift(currentFolder);
+      currentFolder = currentFolder.parent_id
+        ? folderTree[currentFolder.parent_id]?.folder
+        : undefined;
+    }
+
+    return chain;
+  }, [contents, folderTree]);
 
   if (!accessToken || !user) {
     return null;
@@ -298,14 +353,14 @@ export function WorkspaceScreen() {
   async function handleCreateFolder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const token = accessToken;
-    if (!contents || !token) {
+    if (!contents || !token || !newFolderName.trim()) {
       return;
     }
 
     setFolderPending(true);
     try {
       await createFolder(token, {
-        name: newFolderName,
+        name: newFolderName.trim(),
         parent_id: contents.folder.id,
       });
       setNewFolderName("");
@@ -413,8 +468,9 @@ export function WorkspaceScreen() {
     }
   }
 
-  const folderCount = contents?.folders.length ?? 0;
-  const fileCount = contents?.files.length ?? 0;
+  function openNativeFilePicker() {
+    uploadInputRef.current?.click();
+  }
 
   return (
     <>
@@ -428,20 +484,31 @@ export function WorkspaceScreen() {
         share={share}
       />
 
-      <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
-        <aside className="flex flex-col gap-6">
-          <Card className="rounded-[2rem] border-border/70">
-            <CardHeader className="gap-4">
-              <div className="flex items-start justify-between gap-3">
+      <input
+        className="hidden"
+        onChange={(event) => void handleUpload(event)}
+        ref={uploadInputRef}
+        type="file"
+      />
+
+      <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
+        <aside className="flex flex-col gap-4">
+          <Card className="rounded-[2rem] border-border/70 bg-card/95">
+            <CardHeader className="gap-5">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <Avatar className="size-12">
+                  <Avatar className="size-11">
                     <AvatarFallback>
                       {getInitials(user.nickname)}
                     </AvatarFallback>
                   </Avatar>
-                  <div>
-                    <CardTitle className="text-xl">{user.nickname}</CardTitle>
-                    <CardDescription>@{user.username}</CardDescription>
+                  <div className="min-w-0">
+                    <CardTitle className="truncate text-base">
+                      {user.nickname}
+                    </CardTitle>
+                    <CardDescription className="truncate">
+                      @{user.username}
+                    </CardDescription>
                   </div>
                 </div>
                 <Button
@@ -452,32 +519,32 @@ export function WorkspaceScreen() {
                   <LogOutIcon />
                 </Button>
               </div>
+
+              <div className="rounded-[1.5rem] border bg-muted/35 p-4">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <SparklesIcon className="text-muted-foreground" />
+                  Workspace summary
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <MetricPill
+                    label="Folders"
+                    value={String(contents?.folders.length ?? 0)}
+                  />
+                  <MetricPill
+                    label="Files"
+                    value={String(contents?.files.length ?? 0)}
+                  />
+                </div>
+              </div>
             </CardHeader>
-            <CardContent className="grid gap-4">
-              <MetricCard
-                description="Subfolders in the current directory"
-                label={`${folderCount}`}
-                title="Folders"
-              />
-              <MetricCard
-                description="Files in the current directory"
-                label={`${fileCount}`}
-                title="Files"
-              />
-            </CardContent>
-            <CardFooter>
-              <p className="text-sm text-muted-foreground">
-                Created {formatDate(user.created_at)}
-              </p>
-            </CardFooter>
           </Card>
 
-          <Card className="rounded-[2rem] border-border/70">
-            <CardHeader>
-              <CardTitle>Folder tree</CardTitle>
+          <Card className="rounded-[2rem] border-border/70 bg-card/95">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Navigation</CardTitle>
               <CardDescription>
-                This tree grows lazily from the folder contents that have
-                already been loaded.
+                Right click any folder in the tree to open it or expand it in
+                place.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -500,41 +567,166 @@ export function WorkspaceScreen() {
           </Card>
         </aside>
 
-        <main className="flex flex-col gap-6">
-          <Card className="rounded-[2rem] border-border/70">
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle>File management page</CardTitle>
-                  <CardDescription>
-                    {contents?.folder.path_cache ?? "/"}
-                  </CardDescription>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={() => setShareSheetOpen(true)}
-                    variant={share ? "outline" : "default"}
-                  >
-                    <Link2Icon data-icon="inline-start" />
-                    Manage share
-                  </Button>
-                  <Button
-                    disabled={!contents?.folder.parent_id}
-                    onClick={() =>
-                      contents?.folder.parent_id
-                        ? void openFolder(contents.folder.parent_id)
-                        : undefined
-                    }
-                    variant="outline"
-                  >
-                    <ArrowLeftIcon data-icon="inline-start" />
-                    Up one level
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
+        <ContextMenu>
+          <ContextMenuTrigger>
+            <main className="flex flex-col gap-4">
+              <Card className="rounded-[2rem] border-border/70 bg-card/95">
+                <CardHeader className="gap-4 pb-4">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="flex min-w-0 flex-col gap-3">
+                      <Breadcrumb>
+                        <BreadcrumbList>
+                          {breadcrumbFolders.length > 0 ? (
+                            breadcrumbFolders.map((folder, index) => {
+                              const isLast =
+                                index === breadcrumbFolders.length - 1;
 
-            <CardContent className="flex flex-col gap-6">
+                              return (
+                                <Fragment key={folder.id}>
+                                  <BreadcrumbItem>
+                                    {isLast ? (
+                                      <BreadcrumbPage>
+                                        {folder.name}
+                                      </BreadcrumbPage>
+                                    ) : (
+                                      <BreadcrumbLink
+                                        className="cursor-pointer"
+                                        onClick={() =>
+                                          void openFolder(folder.id)
+                                        }
+                                      >
+                                        {folder.name}
+                                      </BreadcrumbLink>
+                                    )}
+                                  </BreadcrumbItem>
+                                  {!isLast ? <BreadcrumbSeparator /> : null}
+                                </Fragment>
+                              );
+                            })
+                          ) : (
+                            <BreadcrumbItem>
+                              <BreadcrumbPage>Workspace</BreadcrumbPage>
+                            </BreadcrumbItem>
+                          )}
+                        </BreadcrumbList>
+                      </Breadcrumb>
+                      <div>
+                        <CardTitle className="text-2xl tracking-tight">
+                          File management
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          Browse the current folder, search quickly, and use
+                          right click for item actions.
+                        </CardDescription>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        onClick={() => setShareSheetOpen(true)}
+                        variant={share ? "outline" : "default"}
+                      >
+                        <Link2Icon data-icon="inline-start" />
+                        Manage share
+                      </Button>
+                      <Button onClick={openNativeFilePicker} variant="outline">
+                        <UploadIcon data-icon="inline-start" />
+                        Upload
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 lg:grid-cols-[1fr_160px_150px_120px]">
+                    <Field>
+                      <FieldLabel htmlFor="workspace-search">Search</FieldLabel>
+                      <FieldContent>
+                        <div className="relative">
+                          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            className="pl-9"
+                            id="workspace-search"
+                            onChange={(event) =>
+                              setSearchQuery(event.target.value)
+                            }
+                            placeholder="Search by folder or file name"
+                            value={searchQuery}
+                          />
+                        </div>
+                      </FieldContent>
+                    </Field>
+
+                    <Field>
+                      <FieldLabel>Sort by</FieldLabel>
+                      <FieldContent>
+                        <Select
+                          onValueChange={(value) =>
+                            setSortKey(value as SortKey)
+                          }
+                          value={sortKey}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Sort field" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="name">Name</SelectItem>
+                              <SelectItem value="updatedAt">Updated</SelectItem>
+                              <SelectItem value="size">Size</SelectItem>
+                              <SelectItem value="kind">Type</SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </FieldContent>
+                    </Field>
+
+                    <Field>
+                      <FieldLabel>Direction</FieldLabel>
+                      <FieldContent>
+                        <Select
+                          onValueChange={(value) =>
+                            setSortDirection(value as "asc" | "desc")
+                          }
+                          value={sortDirection}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Direction" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="asc">Ascending</SelectItem>
+                              <SelectItem value="desc">Descending</SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </FieldContent>
+                    </Field>
+
+                    <Field>
+                      <FieldLabel>Page size</FieldLabel>
+                      <FieldContent>
+                        <Select
+                          onValueChange={(value) => setPageSize(Number(value))}
+                          value={String(pageSize)}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Size" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {PAGE_SIZE_OPTIONS.map((size) => (
+                                <SelectItem key={size} value={size}>
+                                  {size}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </FieldContent>
+                    </Field>
+                  </div>
+                </CardHeader>
+              </Card>
+
               {workspaceError ? (
                 <Alert variant="destructive">
                   <AlertTitle>Workspace load failed</AlertTitle>
@@ -542,38 +734,54 @@ export function WorkspaceScreen() {
                 </Alert>
               ) : null}
 
-              <div className="grid gap-4 lg:grid-cols-2">
-                <Card className="border-border/70 shadow-none">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Create folder</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <form
-                      className="flex flex-col gap-4"
-                      onSubmit={handleCreateFolder}
-                    >
-                      <FieldGroup>
-                        <Field>
-                          <FieldLabel htmlFor="new-folder-name">
-                            Folder name
-                          </FieldLabel>
-                          <FieldContent>
-                            <Input
-                              id="new-folder-name"
-                              onChange={(event) =>
-                                setNewFolderName(event.target.value)
-                              }
-                              value={newFolderName}
-                              required
-                            />
-                            <FieldDescription>
-                              Backend validation still owns name collisions and
-                              permission checks.
-                            </FieldDescription>
-                          </FieldContent>
-                        </Field>
-                      </FieldGroup>
+              <Card className="rounded-[2rem] border-border/70 bg-card/95">
+                <CardHeader className="gap-5 pb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-lg">Quick create</CardTitle>
+                      <CardDescription>
+                        Keep the main flow lightweight. Use this bar for
+                        creation and right click for item actions.
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {share ? (
+                        <Badge variant="outline">
+                          {share.permission_level}
+                        </Badge>
+                      ) : null}
+                      <Badge variant={share ? "default" : "secondary"}>
+                        {share ? "Active share" : "No share"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <form
+                    className="grid gap-3 md:grid-cols-[1fr_auto]"
+                    onSubmit={handleCreateFolder}
+                  >
+                    <Field>
+                      <FieldLabel htmlFor="new-folder-name">
+                        New folder
+                      </FieldLabel>
+                      <FieldContent>
+                        <Input
+                          id="new-folder-name"
+                          onChange={(event) =>
+                            setNewFolderName(event.target.value)
+                          }
+                          placeholder="Enter a folder name"
+                          value={newFolderName}
+                        />
+                        <FieldDescription>
+                          Name validation and permission checks still come from
+                          the backend.
+                        </FieldDescription>
+                      </FieldContent>
+                    </Field>
+                    <div className="flex items-end">
                       <Button
+                        className="w-full md:w-auto"
                         disabled={folderPending || !newFolderName.trim()}
                         type="submit"
                       >
@@ -587,268 +795,199 @@ export function WorkspaceScreen() {
                         )}
                         Create folder
                       </Button>
-                    </form>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-border/70 shadow-none">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Upload file</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-4">
-                    <FieldGroup>
-                      <Field>
-                        <FieldLabel htmlFor="upload-file">
-                          Choose a file
-                        </FieldLabel>
-                        <FieldContent>
-                          <Input
-                            disabled={uploading}
-                            id="upload-file"
-                            onChange={(event) => void handleUpload(event)}
-                            type="file"
-                          />
-                          <FieldDescription>
-                            Uploads follow the init, content, and finalize
-                            sequence.
-                          </FieldDescription>
-                        </FieldContent>
-                      </Field>
-                    </FieldGroup>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      {uploading ? (
-                        <Loader2Icon className="animate-spin" />
-                      ) : (
-                        <UploadIcon />
-                      )}
-                      {uploading
-                        ? "Uploading now"
-                        : "The current directory refreshes after upload completes"}
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
+                  </form>
+                </CardHeader>
 
-              <Separator />
-
-              <div className="grid gap-4 xl:grid-cols-[1fr_auto_auto_auto]">
-                <Field>
-                  <FieldLabel htmlFor="workspace-search">Search</FieldLabel>
-                  <FieldContent>
-                    <div className="relative">
-                      <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        className="pl-9"
-                        id="workspace-search"
-                        onChange={(event) => setSearchQuery(event.target.value)}
-                        placeholder="Search folders and files in this directory"
-                        value={searchQuery}
-                      />
+                <CardContent className="flex flex-col gap-6">
+                  {workspacePending && !contents ? (
+                    <div className="grid gap-3">
+                      <Skeleton className="h-28 rounded-2xl" />
+                      <Skeleton className="h-16 rounded-2xl" />
+                      <Skeleton className="h-16 rounded-2xl" />
                     </div>
-                  </FieldContent>
-                </Field>
+                  ) : sortedItems.length === 0 ? (
+                    <Empty className="border bg-muted/20 py-16">
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          {searchQuery ? <SearchIcon /> : <FolderOpenIcon />}
+                        </EmptyMedia>
+                        <EmptyTitle>
+                          {searchQuery
+                            ? "No items match this search"
+                            : "This folder is empty"}
+                        </EmptyTitle>
+                        <EmptyDescription>
+                          {searchQuery
+                            ? "Try a different query, sort order, or page size."
+                            : "Upload a file, create a folder, or open the share manager to keep moving."}
+                        </EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  ) : (
+                    <>
+                      <section className="flex flex-col gap-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-sm font-medium text-foreground">
+                              Folders
+                            </h3>
+                            <p className="text-sm text-muted-foreground">
+                              Double down on navigation here. Right click for
+                              folder actions.
+                            </p>
+                          </div>
+                          <Badge variant="outline">
+                            {folderItems.length} visible
+                          </Badge>
+                        </div>
 
-                <Field>
-                  <FieldLabel>Sort by</FieldLabel>
-                  <FieldContent>
-                    <Select
-                      onValueChange={(value) => setSortKey(value as SortKey)}
-                      value={sortKey}
-                    >
-                      <SelectTrigger className="w-full sm:w-40">
-                        <SelectValue placeholder="Sort field" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="name">Name</SelectItem>
-                          <SelectItem value="updatedAt">Updated</SelectItem>
-                          <SelectItem value="size">Size</SelectItem>
-                          <SelectItem value="kind">Type</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </FieldContent>
-                </Field>
-
-                <Field>
-                  <FieldLabel>Direction</FieldLabel>
-                  <FieldContent>
-                    <Select
-                      onValueChange={(value) =>
-                        setSortDirection(value as "asc" | "desc")
-                      }
-                      value={sortDirection}
-                    >
-                      <SelectTrigger className="w-full sm:w-32">
-                        <SelectValue placeholder="Direction" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="asc">Ascending</SelectItem>
-                          <SelectItem value="desc">Descending</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </FieldContent>
-                </Field>
-
-                <Field>
-                  <FieldLabel>Page size</FieldLabel>
-                  <FieldContent>
-                    <Select
-                      onValueChange={(value) => setPageSize(Number(value))}
-                      value={String(pageSize)}
-                    >
-                      <SelectTrigger className="w-full sm:w-24">
-                        <SelectValue placeholder="Size" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {PAGE_SIZE_OPTIONS.map((size) => (
-                            <SelectItem key={size} value={size}>
-                              {size}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </FieldContent>
-                </Field>
-              </div>
-
-              {workspacePending && !contents ? (
-                <div className="flex flex-col gap-3">
-                  <Skeleton className="h-12 rounded-2xl" />
-                  <Skeleton className="h-12 rounded-2xl" />
-                  <Skeleton className="h-12 rounded-2xl" />
-                </div>
-              ) : paginatedItems.length > 0 ? (
-                <>
-                  <div className="overflow-hidden rounded-2xl border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Updated</TableHead>
-                          <TableHead>Size</TableHead>
-                          <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {paginatedItems.map((item) => (
-                          <TableRow key={`${item.kind}-${item.id}`}>
-                            <TableCell className="font-medium">
-                              {item.name}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  item.kind === "folder" ? "outline" : "default"
+                        {folderItems.length > 0 ? (
+                          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            {folderItems.map((item) => (
+                              <FolderCard
+                                active={contents?.folder.id === item.folder.id}
+                                folder={item.folder}
+                                onOpen={() => void openFolder(item.folder.id)}
+                                onToggleInTree={() =>
+                                  void toggleFolderExpansion(item.folder.id)
                                 }
-                              >
-                                {item.kind === "folder"
-                                  ? "Folder"
-                                  : item.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{formatDate(item.updatedAt)}</TableCell>
-                            <TableCell>
-                              {item.size === null
-                                ? "-"
-                                : formatBytes(item.size)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {item.kind === "folder" ? (
-                                <Button
-                                  onClick={() => void openFolder(item.id)}
-                                  size="sm"
-                                  variant="outline"
-                                >
-                                  <FolderIcon data-icon="inline-start" />
-                                  Open
-                                </Button>
-                              ) : (
-                                <Button
-                                  onClick={() =>
-                                    void handleDownload(item.id, item.name)
-                                  }
-                                  size="sm"
-                                  variant="outline"
-                                >
-                                  <ArrowDownToLineIcon data-icon="inline-start" />
-                                  Download
-                                </Button>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="rounded-[1.5rem] border border-dashed p-6 text-sm text-muted-foreground">
+                            No folders are visible on this page.
+                          </div>
+                        )}
+                      </section>
 
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-muted-foreground">
-                      Showing {(pageIndex - 1) * pageSize + 1} to{" "}
-                      {Math.min(pageIndex * pageSize, sortedItems.length)} of{" "}
-                      {sortedItems.length} items
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        disabled={pageIndex === 1}
-                        onClick={() =>
-                          setPageIndex((current) => Math.max(1, current - 1))
-                        }
-                        variant="outline"
-                      >
-                        Previous
-                      </Button>
-                      <Badge variant="outline">
-                        Page {pageIndex} of {totalPages}
-                      </Badge>
-                      <Button
-                        disabled={pageIndex >= totalPages}
-                        onClick={() =>
-                          setPageIndex((current) =>
-                            Math.min(totalPages, current + 1),
-                          )
-                        }
-                        variant="outline"
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <Empty className="border bg-muted/20">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      {searchQuery ? (
-                        <ChevronsLeftRightEllipsisIcon />
-                      ) : (
-                        <ShieldCheckIcon />
-                      )}
-                    </EmptyMedia>
-                    <EmptyTitle>
-                      {searchQuery
-                        ? "No items match this search"
-                        : "This folder is empty"}
-                    </EmptyTitle>
-                    <EmptyDescription>
-                      {searchQuery
-                        ? "Try a different search query, sort order, or page size."
-                        : "Create a folder, upload a file, or open the share manager to continue."}
-                    </EmptyDescription>
-                  </EmptyHeader>
-                  <EmptyContent />
-                </Empty>
-              )}
-            </CardContent>
-          </Card>
-        </main>
+                      <Separator />
+
+                      <section className="flex flex-col gap-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-sm font-medium text-foreground">
+                              Files
+                            </h3>
+                            <p className="text-sm text-muted-foreground">
+                              Keep the table focused on content. Downloads and
+                              item actions live on right click.
+                            </p>
+                          </div>
+                          <Badge variant="outline">
+                            {fileItems.length} visible
+                          </Badge>
+                        </div>
+
+                        {fileItems.length > 0 ? (
+                          <div className="overflow-hidden rounded-[1.5rem] border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Name</TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead>Updated</TableHead>
+                                  <TableHead>Size</TableHead>
+                                  <TableHead className="text-right">
+                                    Quick action
+                                  </TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {fileItems.map((item) => (
+                                  <FileRow
+                                    file={item.file}
+                                    onDownload={() =>
+                                      void handleDownload(
+                                        item.file.id,
+                                        item.file.stored_filename,
+                                      )
+                                    }
+                                  />
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : (
+                          <div className="rounded-[1.5rem] border border-dashed p-6 text-sm text-muted-foreground">
+                            No files are visible on this page.
+                          </div>
+                        )}
+                      </section>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Showing {(pageIndex - 1) * pageSize + 1} to{" "}
+                  {Math.min(pageIndex * pageSize, sortedItems.length)} of{" "}
+                  {sortedItems.length} items
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    disabled={pageIndex === 1}
+                    onClick={() =>
+                      setPageIndex((current) => Math.max(1, current - 1))
+                    }
+                    variant="outline"
+                  >
+                    Previous
+                  </Button>
+                  <Badge variant="outline">
+                    Page {pageIndex} of {totalPages}
+                  </Badge>
+                  <Button
+                    disabled={pageIndex >= totalPages}
+                    onClick={() =>
+                      setPageIndex((current) =>
+                        Math.min(totalPages, current + 1),
+                      )
+                    }
+                    variant="outline"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </main>
+          </ContextMenuTrigger>
+
+          <ContextMenuContent>
+            <ContextMenuItem onClick={() => void setShareSheetOpen(true)}>
+              <Link2Icon />
+              Manage current folder share
+            </ContextMenuItem>
+            <ContextMenuItem onClick={openNativeFilePicker}>
+              <UploadIcon />
+              Upload a file
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() =>
+                document.getElementById("new-folder-name")?.focus()
+              }
+            >
+              <FolderPlusIcon />
+              Focus new folder input
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
     </>
+  );
+}
+
+function MetricPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border bg-background/80 px-3 py-3">
+      <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-semibold">{value}</p>
+    </div>
   );
 }
 
@@ -905,39 +1044,52 @@ function FolderTreeNode({
   }
 
   const isExpanded = expandedFolderIds.has(folderId);
-  const hasChildren = node.childFolderIds.length > 0;
 
   return (
     <div className="flex flex-col gap-1">
-      <div
-        className="flex items-center gap-1 rounded-xl px-2 py-1.5"
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
-      >
-        <Button
-          className="shrink-0"
-          onClick={() => void onToggleFolder(folderId)}
-          size="icon-xs"
-          variant="ghost"
-        >
-          <ChevronRightIcon
-            className={
-              isExpanded
-                ? "rotate-90 transition-transform"
-                : "transition-transform"
-            }
-          />
-        </Button>
-        <Button
-          className="flex-1 justify-start truncate"
-          onClick={() => void onOpenFolder(folderId)}
-          variant={activeFolderId === folderId ? "secondary" : "ghost"}
-        >
-          <FolderIcon data-icon="inline-start" />
-          {node.folder.name}
-        </Button>
-      </div>
+      <ContextMenu>
+        <ContextMenuTrigger>
+          <div
+            className="flex items-center gap-1 rounded-xl px-2 py-1.5"
+            style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          >
+            <Button
+              className="shrink-0"
+              onClick={() => void onToggleFolder(folderId)}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <ChevronRightIcon
+                className={
+                  isExpanded
+                    ? "rotate-90 transition-transform"
+                    : "transition-transform"
+                }
+              />
+            </Button>
+            <Button
+              className="flex-1 justify-start truncate"
+              onClick={() => void onOpenFolder(folderId)}
+              variant={activeFolderId === folderId ? "secondary" : "ghost"}
+            >
+              <FolderIcon data-icon="inline-start" />
+              {node.folder.name}
+            </Button>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => void onOpenFolder(folderId)}>
+            <FolderOpenIcon />
+            Open folder
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => void onToggleFolder(folderId)}>
+            <ChevronRightIcon />
+            Toggle branch
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
-      {isExpanded && hasChildren ? (
+      {isExpanded && node.childFolderIds.length > 0 ? (
         <div className="flex flex-col gap-1">
           {node.childFolderIds.map((childFolderId) => (
             <FolderTreeNode
@@ -957,23 +1109,97 @@ function FolderTreeNode({
   );
 }
 
-function MetricCard({
-  description,
-  label,
-  title,
+function FolderCard({
+  active,
+  folder,
+  onOpen,
+  onToggleInTree,
 }: {
-  description: string;
-  label: string;
-  title: string;
+  active: boolean;
+  folder: Folder;
+  onOpen: () => void;
+  onToggleInTree: () => void;
 }) {
   return (
-    <div className="rounded-[1.5rem] border bg-background/70 p-4">
-      <p className="text-sm text-muted-foreground">{title}</p>
-      <p className="mt-2 text-2xl font-semibold">{label}</p>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">
-        {description}
-      </p>
-    </div>
+    <ContextMenu>
+      <ContextMenuTrigger>
+        <button
+          className="group flex w-full flex-col items-start gap-4 rounded-[1.5rem] border bg-background/85 p-4 text-left transition-colors hover:bg-muted/30"
+          onClick={onOpen}
+          type="button"
+        >
+          <div className="flex w-full items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex size-11 items-center justify-center rounded-2xl bg-muted text-foreground">
+                <FolderIcon />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate font-medium text-foreground">
+                  {folder.name}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Updated {formatDate(folder.updated_at)}
+                </p>
+              </div>
+            </div>
+            <MoreHorizontalIcon className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+          </div>
+
+          <div className="flex items-center gap-2">
+            {active ? (
+              <Badge>Current</Badge>
+            ) : (
+              <Badge variant="outline">Folder</Badge>
+            )}
+          </div>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onOpen}>
+          <FolderOpenIcon />
+          Open folder
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onToggleInTree}>
+          <ChevronRightIcon />
+          Toggle in tree
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function FileRow({
+  file,
+  onDownload,
+}: {
+  file: FileSummary;
+  onDownload: () => void;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <TableRow className="cursor-default">
+          <TableCell className="font-medium">{file.stored_filename}</TableCell>
+          <TableCell>
+            <Badge>{file.status}</Badge>
+          </TableCell>
+          <TableCell>{formatDate(file.updated_at)}</TableCell>
+          <TableCell>{formatBytes(file.size_bytes)}</TableCell>
+          <TableCell className="text-right">
+            <Button onClick={onDownload} size="sm" variant="ghost">
+              <ArrowDownToLineIcon data-icon="inline-start" />
+              Download
+            </Button>
+          </TableCell>
+        </TableRow>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onDownload}>
+          <ArrowDownToLineIcon />
+          Download file
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
