@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import select
 
 from app.models import File, UploadSession
-from app.workers.cleanup import handle_cleanup_event
+from app.workers.cleanup import consume_cleanup_events, handle_cleanup_event
 from tests_helpers import register_and_login
 
 
@@ -97,3 +97,26 @@ def test_folder_delete_event_cleans_nested_objects(
     handle_cleanup_event(event_publisher.events[-1].payload, object_storage)
 
     assert not object_storage.object_exists(file.storage_bucket, file.object_key)
+
+
+def test_consume_cleanup_events_processes_kafka_messages(object_storage) -> None:
+    object_storage.put_object("files", "cleanup/test.txt", b"payload", "text/plain")
+
+    class FakeMessage:
+        def __init__(self, value) -> None:
+            self.value = value
+
+    consumer = iter(
+        [
+            FakeMessage(
+                {
+                    "event_type": "file.delete_requested",
+                    "objects": [{"bucket": "files", "object_key": "cleanup/test.txt"}],
+                }
+            )
+        ]
+    )
+
+    consume_cleanup_events(consumer, object_storage)
+
+    assert not object_storage.object_exists("files", "cleanup/test.txt")

@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     kafka_broker: str = Field(default="kafka:9092", alias="KAFKA_BROKER")
     kafka_cleanup_topic: str = Field(default="filesh.cleanup", alias="KAFKA_CLEANUP_TOPIC")
     kafka_client_id: str = Field(default="filesh-backend", alias="KAFKA_CLIENT_ID")
+    kafka_cleanup_group_id: str = Field(
+        default="filesh-cleanup-worker",
+        alias="KAFKA_CLEANUP_GROUP_ID",
+    )
     kafka_publisher_enabled: bool = Field(default=False, alias="KAFKA_PUBLISHER_ENABLED")
     jwt_secret: str = Field(default=DEFAULT_JWT_SECRET, alias="JWT_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
