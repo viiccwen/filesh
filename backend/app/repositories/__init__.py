@@ -1,3 +1,3 @@
-from app.repositories import files, folders, shares
+from app.repositories import files, folders, shares, users
 
-__all__ = ["files", "folders", "shares"]
+__all__ = ["files", "folders", "shares", "users"]

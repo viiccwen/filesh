@@ -7,6 +7,13 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from app.application.shared.files import get_file_for_owner
+from app.application.shared.folders import (
+    ROOT_FOLDER_NAME,
+    create_folder,
+    get_folder_for_owner,
+    list_folder_contents,
+)
 from app.domain import (
     AuthorizationError,
     ConflictError,
@@ -29,13 +36,6 @@ from app.repositories import folders as folder_repository
 from app.repositories import shares as share_repository
 from app.schemas.folder import FolderCreateRequest
 from app.schemas.share import ShareRead, ShareUpsertRequest
-from app.services.files import get_file_for_owner
-from app.services.folders import (
-    ROOT_FOLDER_NAME,
-    create_folder,
-    get_folder_for_owner,
-    list_folder_contents,
-)
 
 PERMISSION_RANK = {
     PermissionLevel.VIEW_DOWNLOAD: 1,
@@ -93,12 +93,11 @@ def resolve_invited_users(session: Session, emails: list[str]) -> list[User]:
     return users
 
 
-def assert_share_payload(payload: ShareUpsertRequest) -> list[User] | None:
+def assert_share_payload(payload: ShareUpsertRequest) -> None:
     if payload.share_mode is ShareMode.EMAIL_INVITATION and not payload.invitation_emails:
         raise ValidationError("Invitation emails are required for email invitation mode")
     if payload.share_mode is not ShareMode.EMAIL_INVITATION and payload.invitation_emails:
         raise ValidationError("Invitation emails are only allowed for email invitation mode")
-    return None
 
 
 def to_share_read(share_link: ShareLink, raw_token: str) -> ShareRead:
@@ -273,20 +272,6 @@ def get_shared_resource(
     if folder is None:
         raise NotFoundError("Resource not found")
     return folder
-
-
-def get_shared_folder_contents(
-    session: Session,
-    share_link: ShareLink,
-) -> tuple[Folder, list[Folder], list[File]]:
-    if share_link.resource_type is not ResourceType.FOLDER:
-        raise ValidationError("Shared resource is not a folder")
-    folder, folders, files = list_folder_contents(
-        session,
-        share_link.resource_id,
-        share_link.owner_id,
-    )
-    return folder, folders, files
 
 
 def is_folder_within_shared_tree(root_folder: Folder, candidate_folder: Folder) -> bool:

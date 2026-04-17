@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.application.shared.folders import get_folder_for_owner
 from app.core.config import settings
 from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
 from app.core.storage import ObjectStorage
@@ -14,7 +15,6 @@ from app.domain import ConflictError, NotFoundError, ValidationError
 from app.models import File, FileStatus, UploadSession, UploadSessionStatus, User
 from app.repositories import files as file_repository
 from app.schemas.file import UploadFailRequest, UploadFinalizeRequest, UploadInitRequest
-from app.services.folders import get_folder_for_owner
 
 
 def split_filename(filename: str) -> tuple[str, str]:
@@ -86,7 +86,9 @@ def get_upload_session_for_owner(
     owner_id: uuid.UUID,
 ) -> UploadSession:
     upload_session = file_repository.get_upload_session_by_owner(
-        session, upload_session_id, owner_id
+        session,
+        upload_session_id,
+        owner_id,
     )
     if upload_session is None:
         raise NotFoundError("Upload session not found")

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.application.shared.folders import create_root_folder
 from app.core.config import settings
 from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
 from app.core.security import (
@@ -13,14 +13,16 @@ from app.core.security import (
 )
 from app.domain import AuthenticationError, AuthorizationError, ConflictError
 from app.models import User
+from app.repositories import users as user_repository
 from app.schemas.auth import AccessTokenResponse, LoginRequest, RegisterRequest
 from app.schemas.user import UserRead
-from app.services.folders import create_root_folder
 
 
 def register_user(session: Session, payload: RegisterRequest) -> User:
-    existing_user = session.scalar(
-        select(User).where(or_(User.email == payload.email, User.username == payload.username))
+    existing_user = user_repository.get_user_by_email_or_username(
+        session,
+        email=str(payload.email),
+        username=payload.username,
     )
     if existing_user is not None:
         detail = (
@@ -34,7 +36,7 @@ def register_user(session: Session, payload: RegisterRequest) -> User:
         nickname=payload.nickname,
         password_hash=hash_password(payload.password),
     )
-    session.add(user)
+    user_repository.add_user(session, user)
     session.flush()
     create_root_folder(session, user)
     session.commit()
@@ -43,11 +45,7 @@ def register_user(session: Session, payload: RegisterRequest) -> User:
 
 
 def authenticate_user(session: Session, payload: LoginRequest) -> User:
-    user = session.scalar(
-        select(User).where(
-            or_(User.email == payload.identifier, User.username == payload.identifier)
-        )
-    )
+    user = user_repository.get_user_by_identifier(session, payload.identifier)
     if user is None or not verify_password(payload.password, user.password_hash):
         raise AuthenticationError("Invalid credentials")
 

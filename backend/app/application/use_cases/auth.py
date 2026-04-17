@@ -3,13 +3,19 @@ from __future__ import annotations
 import uuid
 
 import jwt
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.application.shared.auth import (
+    authenticate_user,
+    build_auth_response,
+    delete_user_account,
+    register_user,
+)
 from app.core.events import EventPublisher
 from app.core.security import clear_refresh_cookie, decode_token, set_refresh_cookie
 from app.domain import AuthenticationError
 from app.models import User
+from app.repositories import users as user_repository
 from app.schemas.auth import (
     AccessTokenResponse,
     DeleteAccountResponse,
@@ -18,12 +24,6 @@ from app.schemas.auth import (
     RegisterRequest,
 )
 from app.schemas.user import UserRead
-from app.services.auth import (
-    authenticate_user,
-    build_auth_response,
-    delete_user_account,
-    register_user,
-)
 
 
 class AuthUseCase:
@@ -48,7 +48,7 @@ class AuthUseCase:
             raise AuthenticationError("Invalid refresh token") from exc
 
         user_id = uuid.UUID(payload["sub"])
-        user = self.session.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
+        user = user_repository.get_active_user_by_id(self.session, user_id)
         if user is None:
             raise AuthenticationError("User not found")
         return build_auth_response(user)

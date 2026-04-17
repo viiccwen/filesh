@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import uuid
 
-from app.core.events import EventPublisher
-from app.models import ResourceType, User
-from app.schemas.file import FileSummary
-from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
-from app.schemas.share import ShareRead, ShareUpsertRequest
-from app.services.folders import (
+from app.application.shared.folders import (
     create_folder,
     delete_folder,
     get_folder_for_owner,
     get_or_create_root_folder,
     list_folder_contents,
 )
-from app.services.shares import create_share, get_share, revoke_share, update_share
+from app.application.shared.presenters import to_folder_contents_response
+from app.application.shared.shares import create_share, get_share, revoke_share, update_share
+from app.core.events import EventPublisher
+from app.models import ResourceType, User
+from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
+from app.schemas.share import ShareRead, ShareUpsertRequest
 
 
 class FolderUseCase:
@@ -36,20 +36,7 @@ class FolderUseCase:
 
     def contents(self, folder_id: uuid.UUID, current_user: User) -> FolderContentsResponse:
         folder, folders, files = list_folder_contents(self.session, folder_id, current_user.id)
-        return FolderContentsResponse(
-            folder=FolderRead.model_validate(folder),
-            folders=[FolderRead.model_validate(item) for item in folders],
-            files=[
-                FileSummary(
-                    id=item.id,
-                    stored_filename=item.stored_filename,
-                    content_type=item.content_type,
-                    size_bytes=item.size_bytes,
-                    status=item.status,
-                )
-                for item in files
-            ],
-        )
+        return to_folder_contents_response(folder, folders, files)
 
     def delete(self, folder_id: uuid.UUID, current_user: User) -> None:
         delete_folder(self.session, folder_id, current_user.id, self.event_publisher)

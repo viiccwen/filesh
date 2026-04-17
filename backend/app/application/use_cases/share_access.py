@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import uuid
 
-from app.core.events import EventPublisher
-from app.core.storage import ObjectStorage
-from app.models import PermissionLevel, ResourceType, User
-from app.schemas.file import FileRead, FileSummary
-from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
-from app.schemas.share import ShareAccessResponse, SharedFolderContentsResponse
-from app.services.files import delete_file, download_file_content
-from app.services.folders import delete_folder
-from app.services.shares import (
+from app.application.shared.files import delete_file, download_file_content
+from app.application.shared.folders import delete_folder
+from app.application.shared.presenters import (
+    to_folder_contents_response,
+    to_share_access_response,
+    to_shared_folder_contents_response,
+)
+from app.application.shared.shares import (
     authorize_share_permission,
     create_shared_subfolder,
     get_shared_folder_contents_for_target,
@@ -19,6 +18,12 @@ from app.services.shares import (
     resolve_share_by_token,
     resolve_shared_file_action,
 )
+from app.core.events import EventPublisher
+from app.core.storage import ObjectStorage
+from app.models import PermissionLevel, ResourceType, User
+from app.schemas.file import FileRead
+from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
+from app.schemas.share import ShareAccessResponse, SharedFolderContentsResponse
 
 
 class ShareAccessUseCase:
@@ -36,21 +41,7 @@ class ShareAccessUseCase:
         share_link = resolve_share_by_token(self.session, token)
         authorize_share_permission(share_link, current_user, PermissionLevel.VIEW_DOWNLOAD)
         resource = get_shared_resource(self.session, share_link)
-        if share_link.resource_type is ResourceType.FILE:
-            return ShareAccessResponse(
-                resource_type=share_link.resource_type,
-                share_mode=share_link.share_mode,
-                permission_level=share_link.permission_level,
-                expires_at=share_link.expires_at,
-                file=FileRead.model_validate(resource),
-            )
-        return ShareAccessResponse(
-            resource_type=share_link.resource_type,
-            share_mode=share_link.share_mode,
-            permission_level=share_link.permission_level,
-            expires_at=share_link.expires_at,
-            folder=FolderRead.model_validate(resource),
-        )
+        return to_share_access_response(share_link, resource)
 
     def shared_folder_contents(
         self,
@@ -63,20 +54,11 @@ class ShareAccessUseCase:
             share_link,
             current_user,
         )
-        return SharedFolderContentsResponse(
-            folder=FolderRead.model_validate(folder),
-            folders=[FolderRead.model_validate(item) for item in folders],
-            files=[
-                FileSummary(
-                    id=item.id,
-                    stored_filename=item.stored_filename,
-                    content_type=item.content_type,
-                    size_bytes=item.size_bytes,
-                    status=item.status,
-                )
-                for item in files
-            ],
-            permission_level=share_link.permission_level,
+        return to_shared_folder_contents_response(
+            folder,
+            folders,
+            files,
+            share_link.permission_level,
         )
 
     def download_shared_file(
@@ -107,20 +89,7 @@ class ShareAccessUseCase:
             current_user,
             folder_id,
         )
-        return FolderContentsResponse(
-            folder=FolderRead.model_validate(folder),
-            folders=[FolderRead.model_validate(item) for item in folders],
-            files=[
-                FileSummary(
-                    id=item.id,
-                    stored_filename=item.stored_filename,
-                    content_type=item.content_type,
-                    size_bytes=item.size_bytes,
-                    status=item.status,
-                )
-                for item in files
-            ],
-        )
+        return to_folder_contents_response(folder, folders, files)
 
     def create_shared_folder(
         self,

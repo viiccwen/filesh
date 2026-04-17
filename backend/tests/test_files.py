@@ -4,8 +4,8 @@ import uuid
 
 from sqlalchemy import select
 
+from app.application.shared.files import resolve_filename_collision
 from app.models import File, UploadSession, UploadSessionStatus
-from app.services.files import resolve_filename_collision
 from tests_helpers import register_and_login
 
 

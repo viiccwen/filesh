@@ -104,8 +104,7 @@ def list_descendant_folder_ids(
     owner_id: uuid.UUID,
     folder: Folder,
 ) -> list[uuid.UUID]:
-    path_prefix = folder.path_cache
-    return folder_repository.list_descendant_folder_ids(session, owner_id, path_prefix)
+    return folder_repository.list_descendant_folder_ids(session, owner_id, folder.path_cache)
 
 
 def list_descendant_files(session: Session, folder_ids: list[uuid.UUID]) -> list[File]:

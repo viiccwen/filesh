@@ -2,6 +2,17 @@ from __future__ import annotations
 
 import uuid
 
+from app.application.shared.files import (
+    delete_file,
+    download_file_content,
+    fail_upload,
+    finalize_upload,
+    get_file_for_owner,
+    init_upload,
+    upload_content,
+)
+from app.application.shared.presenters import to_upload_init_response
+from app.application.shared.shares import create_share, get_share, revoke_share, update_share
 from app.core.events import EventPublisher
 from app.core.storage import ObjectStorage
 from app.models import ResourceType, User
@@ -13,16 +24,6 @@ from app.schemas.file import (
     UploadInitResponse,
 )
 from app.schemas.share import ShareRead, ShareUpsertRequest
-from app.services.files import (
-    delete_file,
-    download_file_content,
-    fail_upload,
-    finalize_upload,
-    get_file_for_owner,
-    init_upload,
-    upload_content,
-)
-from app.services.shares import create_share, get_share, revoke_share, update_share
 
 
 class FileUseCase:
@@ -38,12 +39,7 @@ class FileUseCase:
 
     def init_upload(self, current_user: User, payload: UploadInitRequest) -> UploadInitResponse:
         upload_session = init_upload(self.session, current_user, payload)
-        return UploadInitResponse(
-            session_id=upload_session.id,
-            resolved_filename=upload_session.resolved_filename,
-            object_key=upload_session.object_key,
-            status=upload_session.status,
-        )
+        return to_upload_init_response(upload_session)
 
     def finalize_upload(self, current_user: User, payload: UploadFinalizeRequest) -> FileRead:
         file = finalize_upload(self.session, current_user, payload)
