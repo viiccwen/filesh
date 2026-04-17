@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from app.models import PermissionLevel, ResourceType, ShareMode
 from app.schemas.file import FileRead, FileSummary
@@ -17,7 +17,7 @@ class ShareUpsertRequest(BaseModel):
     share_mode: ShareMode
     permission_level: PermissionLevel
     expiry: ExpiryOption = "never"
-    invitation_emails: list[EmailStr] = []
+    invitation_emails: list[EmailStr] = Field(default_factory=list)
 
 
 class ShareRead(BaseModel):

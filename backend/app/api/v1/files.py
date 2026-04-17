@@ -4,15 +4,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
-from app.core.db import get_db_session
-from app.core.events import EventPublisher
-from app.core.storage import ObjectStorage
+from app.api.errors import to_http_exception
+from app.application.use_cases.files import FileUseCase
 from app.dependencies.auth import get_current_user
-from app.dependencies.events import get_event_publisher
-from app.dependencies.storage import get_object_storage
-from app.models import ResourceType, User
+from app.dependencies.use_cases import get_file_use_case
+from app.domain import AppError
+from app.models import User
 from app.schemas.file import (
     FileRead,
     UploadFailRequest,
@@ -21,151 +19,152 @@ from app.schemas.file import (
     UploadInitResponse,
 )
 from app.schemas.share import ShareRead, ShareUpsertRequest
-from app.services.files import (
-    delete_file,
-    download_file_content,
-    fail_upload,
-    finalize_upload,
-    get_file_for_owner,
-    init_upload,
-    upload_content,
-)
-from app.services.shares import create_share, get_share, revoke_share, update_share
 
 router = APIRouter()
-db_session_dependency = Depends(get_db_session)
 current_user_dependency = Depends(get_current_user)
-object_storage_dependency = Depends(get_object_storage)
-event_publisher_dependency = Depends(get_event_publisher)
+file_use_case_dependency = Depends(get_file_use_case)
 
 
 @router.post("/upload/init", response_model=UploadInitResponse, status_code=status.HTTP_201_CREATED)
 def upload_init(
     payload: UploadInitRequest,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> UploadInitResponse:
-    upload_session = init_upload(session, current_user, payload)
-    return UploadInitResponse(
-        session_id=upload_session.id,
-        resolved_filename=upload_session.resolved_filename,
-        object_key=upload_session.object_key,
-        status=upload_session.status,
-    )
+    try:
+        return use_case.init_upload(current_user, payload)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.post("/upload/finalize", response_model=FileRead)
 def upload_finalize(
     payload: UploadFinalizeRequest,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> FileRead:
-    file = finalize_upload(session, current_user, payload)
-    return FileRead.model_validate(file)
+    try:
+        return use_case.finalize_upload(current_user, payload)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.post("/upload/{upload_session_id}/content", status_code=status.HTTP_204_NO_CONTENT)
 async def upload_content_object(
     upload_session_id: uuid.UUID,
     file: UploadFile,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
-    object_storage: ObjectStorage = object_storage_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> Response:
     data = await file.read()
-    upload_content(
-        session,
-        current_user,
-        upload_session_id,
-        data,
-        file.content_type,
-        object_storage,
-    )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        use_case.upload_content(upload_session_id, current_user, data, file.content_type)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.post("/upload/fail", status_code=status.HTTP_204_NO_CONTENT)
 def upload_fail(
     payload: UploadFailRequest,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
-    event_publisher: EventPublisher = event_publisher_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> Response:
-    fail_upload(session, current_user, payload, event_publisher)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        use_case.fail_upload(current_user, payload)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("/{file_id}", response_model=FileRead)
 def get_file(
     file_id: uuid.UUID,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> FileRead:
-    file = get_file_for_owner(session, file_id, current_user.id)
-    return FileRead.model_validate(file)
+    try:
+        return use_case.get(file_id, current_user)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("/{file_id}/download")
 def download_file(
     file_id: uuid.UUID,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
-    object_storage: ObjectStorage = object_storage_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> StreamingResponse:
-    file = get_file_for_owner(session, file_id, current_user.id)
-    data = download_file_content(object_storage, file)
-    return StreamingResponse(
-        iter([data]),
-        media_type=file.content_type or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{file.stored_filename}"'},
-    )
+    try:
+        data, media_type, filename = use_case.download(file_id, current_user)
+        return StreamingResponse(
+            iter([data]),
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_file(
     file_id: uuid.UUID,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
-    event_publisher: EventPublisher = event_publisher_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> Response:
-    delete_file(session, file_id, current_user.id, event_publisher)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        use_case.delete(file_id, current_user)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("/{file_id}/share", response_model=ShareRead)
 def get_file_share(
     file_id: uuid.UUID,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> ShareRead:
-    return get_share(session, current_user, ResourceType.FILE, file_id)
+    try:
+        return use_case.get_share(file_id, current_user)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.post("/{file_id}/share", response_model=ShareRead, status_code=status.HTTP_201_CREATED)
 def create_file_share(
     file_id: uuid.UUID,
     payload: ShareUpsertRequest,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> ShareRead:
-    return create_share(session, current_user, ResourceType.FILE, file_id, payload)
+    try:
+        return use_case.create_share(file_id, current_user, payload)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.patch("/{file_id}/share", response_model=ShareRead)
 def update_file_share(
     file_id: uuid.UUID,
     payload: ShareUpsertRequest,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> ShareRead:
-    return update_share(session, current_user, ResourceType.FILE, file_id, payload)
+    try:
+        return use_case.update_share(file_id, current_user, payload)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.delete("/{file_id}/share", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file_share(
     file_id: uuid.UUID,
-    session: Session = db_session_dependency,
     current_user: User = current_user_dependency,
+    use_case: FileUseCase = file_use_case_dependency,
 ) -> Response:
-    revoke_share(session, current_user, ResourceType.FILE, file_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        use_case.revoke_share(file_id, current_user)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except AppError as exc:
+        raise to_http_exception(exc) from exc

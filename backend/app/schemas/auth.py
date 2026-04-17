@@ -27,6 +27,10 @@ class LogoutResponse(BaseModel):
     message: str
 
 
+class DeleteAccountResponse(BaseModel):
+    message: str
+
+
 class TokenSubject(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

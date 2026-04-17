@@ -6,7 +6,8 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.security import create_access_token
-from app.models import User
+from app.models import File, User
+from app.workers.cleanup import handle_cleanup_event
 
 
 def test_register_login_refresh_and_get_me(client) -> None:
@@ -174,3 +175,68 @@ def test_login_rejects_inactive_user(client, session) -> None:
 
     assert response.status_code == 403
     assert response.json()["detail"] == "User is inactive"
+
+
+def test_delete_account_removes_user_and_publishes_cleanup_event(
+    client,
+    session,
+    object_storage,
+    event_publisher,
+) -> None:
+    client.post(
+        "/api/auth/register",
+        json={
+            "email": "delete-me@example.com",
+            "username": "delete-me",
+            "nickname": "Delete Me",
+            "password": "secret123",
+        },
+    )
+    login_response = client.post(
+        "/api/auth/login",
+        json={"identifier": "delete-me@example.com", "password": "secret123"},
+    )
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+    root_response = client.get("/api/folders/root", headers=headers)
+    init_response = client.post(
+        "/api/files/upload/init",
+        headers=headers,
+        json={
+            "folder_id": root_response.json()["id"],
+            "filename": "account.txt",
+            "expected_size": 7,
+        },
+    )
+    client.post(
+        f"/api/files/upload/{init_response.json()['session_id']}/content",
+        headers=headers,
+        files={"file": ("account.txt", b"cleanup", "text/plain")},
+    )
+    finalize_response = client.post(
+        "/api/files/upload/finalize",
+        headers=headers,
+        json={"upload_session_id": init_response.json()["session_id"], "size_bytes": 7},
+    )
+
+    file = session.scalar(select(File).where(File.id == uuid.UUID(finalize_response.json()["id"])))
+    assert file is not None
+    assert object_storage.object_exists(file.storage_bucket, file.object_key)
+
+    delete_response = client.delete("/api/auth/me", headers=headers)
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["message"] == "Account deleted"
+    assert f"{settings.refresh_token_cookie_name}=" in delete_response.headers["set-cookie"]
+    assert session.scalar(select(User).where(User.email == "delete-me@example.com")) is None
+    assert event_publisher.events[-1].payload["event_type"] == "account.delete_requested"
+
+    handle_cleanup_event(event_publisher.events[-1].payload, object_storage)
+
+    assert not object_storage.object_exists(file.storage_bucket, file.object_key)
+
+
+def test_delete_account_requires_authentication(client) -> None:
+    response = client.delete("/api/auth/me")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"

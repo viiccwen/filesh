@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from fastapi import HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.events import CleanupEventType, EventPublisher, build_cleanup_event
 from app.core.security import (
     create_access_token,
     create_refresh_token,
     hash_password,
     verify_password,
 )
+from app.domain import AuthenticationError, AuthorizationError, ConflictError
 from app.models import User
 from app.schemas.auth import AccessTokenResponse, LoginRequest, RegisterRequest
 from app.schemas.user import UserRead
@@ -24,7 +26,7 @@ def register_user(session: Session, payload: RegisterRequest) -> User:
         detail = (
             "Email already registered" if existing_user.email == payload.email else "Username taken"
         )
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+        raise ConflictError(detail)
 
     user = User(
         email=str(payload.email),
@@ -47,10 +49,10 @@ def authenticate_user(session: Session, payload: LoginRequest) -> User:
         )
     )
     if user is None or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise AuthenticationError("Invalid credentials")
 
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+        raise AuthorizationError("User is inactive")
 
     return user
 
@@ -62,3 +64,18 @@ def build_auth_response(user: User) -> tuple[AccessTokenResponse, str]:
         AccessTokenResponse(access_token=access_token, user=UserRead.model_validate(user)),
         refresh_token,
     )
+
+
+def delete_user_account(session: Session, user: User, event_publisher: EventPublisher) -> None:
+    objects = [
+        {"bucket": file.storage_bucket, "object_key": file.object_key} for file in user.files
+    ]
+    event = build_cleanup_event(
+        CleanupEventType.ACCOUNT_DELETE_REQUESTED,
+        resource={"type": "user", "id": str(user.id)},
+        objects=objects,
+        metadata={"email": user.email, "username": user.username},
+    )
+    session.delete(user)
+    session.commit()
+    event_publisher.publish(settings.kafka_cleanup_topic, str(user.id), event)
