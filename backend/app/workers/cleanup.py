@@ -9,6 +9,12 @@ from typing import Any
 
 from app.core.config import settings
 from app.core.events import CleanupEventType, EventPublisher, KafkaEventPublisher
+from app.core.observability import (
+    configure_logging,
+    current_time,
+    observe_cleanup_event,
+    request_log_extra,
+)
 from app.core.storage import MinioObjectStorage, ObjectStorage
 
 logger = logging.getLogger(__name__)
@@ -163,17 +169,26 @@ def process_cleanup_message(
     publisher: EventPublisher,
 ) -> None:
     event = message.value
+    started_at = current_time()
+    topic = getattr(message, "topic", settings.kafka_cleanup_topic)
+    event_type = str(event.get("event_type"))
     wait_until_scheduled(event)
     try:
         logger.info(
             "processing cleanup event",
-            extra={
-                "event_type": event.get("event_type"),
-                "attempt": get_event_attempt(event),
-                "topic": getattr(message, "topic", settings.kafka_cleanup_topic),
-            },
+            extra=request_log_extra(
+                event_type=event_type,
+                attempt=get_event_attempt(event),
+                topic=topic,
+            ),
         )
         handle_cleanup_event(event, storage)
+        observe_cleanup_event(
+            event_type=event_type,
+            topic=topic,
+            outcome="processed",
+            duration=current_time() - started_at,
+        )
     except Exception as exc:
         if get_event_attempt(event) >= get_event_max_retries(event):
             publisher.publish(
@@ -181,7 +196,16 @@ def process_cleanup_message(
                 get_event_key(event, str(getattr(message, "offset", "dlq"))),
                 build_dlq_event(event, exc),
             )
-            logger.exception("cleanup event sent to dlq")
+            observe_cleanup_event(
+                event_type=event_type,
+                topic=topic,
+                outcome="dlq",
+                duration=current_time() - started_at,
+            )
+            logger.exception(
+                "cleanup event sent to dlq",
+                extra=request_log_extra(event_type=event_type, topic=topic),
+            )
         else:
             retry_event = schedule_retry_event(event, exc)
             publisher.publish(
@@ -189,12 +213,19 @@ def process_cleanup_message(
                 get_event_key(retry_event, str(getattr(message, "offset", "retry"))),
                 retry_event,
             )
+            observe_cleanup_event(
+                event_type=event_type,
+                topic=topic,
+                outcome="retry",
+                duration=current_time() - started_at,
+            )
             logger.warning(
                 "cleanup event scheduled for retry",
-                extra={
-                    "event_type": event.get("event_type"),
-                    "attempt": get_event_attempt(retry_event),
-                },
+                extra=request_log_extra(
+                    event_type=event_type,
+                    attempt=get_event_attempt(retry_event),
+                    topic=topic,
+                ),
             )
     finally:
         consumer.commit()
@@ -210,7 +241,7 @@ def consume_cleanup_events(
 
 
 def run_cleanup_worker() -> None:
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     ensure_cleanup_topics()
     storage = MinioObjectStorage()
     publisher = KafkaEventPublisher()

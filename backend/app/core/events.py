@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from app.core.config import settings
+from app.core.observability import get_request_id
 
 
 class CleanupEventType:
@@ -61,12 +62,16 @@ def build_cleanup_event(
     objects: list[dict[str, str]] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    event_metadata = dict(metadata or {})
+    correlation_id = get_request_id()
+    if correlation_id and "correlation_id" not in event_metadata:
+        event_metadata["correlation_id"] = correlation_id
     return {
         "event_type": event_type,
         "occurred_at": datetime.now(UTC).isoformat(),
         "resource": resource or {},
         "objects": objects or [],
-        "metadata": metadata or {},
+        "metadata": event_metadata,
         "delivery": {
             "attempt": 0,
             "max_retries": settings.kafka_cleanup_max_retries,

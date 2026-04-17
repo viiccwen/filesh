@@ -61,6 +61,9 @@ class Settings(BaseSettings):
         alias="KAFKA_CLEANUP_RETRY_MAX_SECONDS",
     )
     kafka_publisher_enabled: bool = Field(default=False, alias="KAFKA_PUBLISHER_ENABLED")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_json: bool = Field(default=True, alias="LOG_JSON")
+    metrics_enabled: bool = Field(default=True, alias="METRICS_ENABLED")
     jwt_secret: str = Field(default=DEFAULT_JWT_SECRET, alias="JWT_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
