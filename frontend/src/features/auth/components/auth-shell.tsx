@@ -69,10 +69,7 @@ export function LoginCard() {
   }
 
   return (
-    <AuthCardFrame
-      description="Sign in with an email or username. The session is restored through the refresh cookie."
-      title="Login"
-    >
+    <AuthCardFrame description="" title="">
       <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
         <FieldGroup>
           <Field>
@@ -252,12 +249,20 @@ function AuthCardFrame({
   description: string;
   title: string;
 }) {
+  const showHeader = Boolean(title || description);
+
   return (
     <Card className="w-full rounded-[2.25rem] border-border/70 bg-background/82 shadow-xl shadow-black/5 ring-1 ring-white/50 backdrop-blur-xl">
-      <CardHeader className="items-center text-center">
-        <CardTitle>{title}</CardTitle>
-        <CardDescription className="max-w-sm">{description}</CardDescription>
-      </CardHeader>
+      {showHeader ? (
+        <CardHeader className="items-center text-center">
+          {title ? <CardTitle>{title}</CardTitle> : null}
+          {description ? (
+            <CardDescription className="max-w-sm">
+              {description}
+            </CardDescription>
+          ) : null}
+        </CardHeader>
+      ) : null}
       <CardContent>{children}</CardContent>
     </Card>
   );

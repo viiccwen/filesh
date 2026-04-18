@@ -206,7 +206,7 @@ export function DeleteResourceDialog({
             ) : (
               <TrashIcon data-icon="inline-start" />
             )}
-            Delete
+            <span>Delete</span>
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
