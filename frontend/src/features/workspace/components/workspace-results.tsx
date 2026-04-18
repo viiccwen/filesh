@@ -2,12 +2,12 @@ import {
   ArrowDownToLineIcon,
   FileTextIcon,
   FolderIcon,
-  FolderInputIcon,
   FolderOpenIcon,
   PencilIcon,
   SearchIcon,
   TrashIcon,
 } from "lucide-react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -33,8 +33,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatBytes, formatDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import type { Folder } from "@/features/workspace/schemas";
 
 import type {
+  ActionResource,
   WorkspaceResultsProps,
   WorkspaceRowProps,
 } from "./workspace-screen.types";
@@ -49,11 +52,18 @@ export function WorkspaceResults({
   onDeleteResource,
   onDownloadFile,
   onEditResource,
+  onMoveResource,
   onOpenFolder,
   resourceResults,
   searchQuery,
   workspacePending,
 }: WorkspaceResultsProps) {
+  const [draggedResource, setDraggedResource] = useState<ActionResource | null>(
+    null,
+  );
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [movePendingId, setMovePendingId] = useState<string | null>(null);
+
   if (workspacePending && !contents) {
     return (
       <div className="grid gap-3">
@@ -101,6 +111,9 @@ export function WorkspaceResults({
         <TableBody>
           {(resourceResults?.items ?? []).map((item) => (
             <WorkspaceRow
+              draggedResource={draggedResource}
+              dropTargetId={dropTargetId}
+              isMovePending={movePendingId !== null}
               item={item}
               key={item.item_type === "FOLDER" ? item.folder.id : item.file.id}
               onDelete={() =>
@@ -118,18 +131,23 @@ export function WorkspaceResults({
                   ? void onDownloadFile(item.file.id, item.file.stored_filename)
                   : undefined
               }
-              onMove={() =>
-                onEditResource({
-                  mode: "move",
-                  resource:
-                    item.item_type === "FOLDER"
-                      ? toFolderActionResource(item.folder)
-                      : toFileActionResource({
-                          file: item.file,
-                          parentId: currentFolderId,
-                        }),
-                })
+              onDragEnd={() => {
+                setDraggedResource(null);
+                setDropTargetId(null);
+              }}
+              onDragStart={() =>
+                setDraggedResource(
+                  item.item_type === "FOLDER"
+                    ? toFolderActionResource(item.folder)
+                    : toFileActionResource({
+                        file: item.file,
+                        parentId: currentFolderId,
+                      }),
+                )
               }
+              onDropResource={(targetFolder) => {
+                void handleDropResource(targetFolder);
+              }}
               onOpenFolder={() =>
                 item.item_type === "FOLDER"
                   ? void onOpenFolder(item.folder.id)
@@ -147,37 +165,110 @@ export function WorkspaceResults({
                         }),
                 })
               }
+              setDropTargetId={setDropTargetId}
             />
           ))}
         </TableBody>
       </Table>
     </div>
   );
+
+  async function handleDropResource(targetFolder: Folder) {
+    if (!draggedResource) {
+      return;
+    }
+
+    if (!canDropResource(draggedResource, targetFolder)) {
+      setDropTargetId(null);
+      return;
+    }
+
+    setMovePendingId(draggedResource.id);
+    setDropTargetId(null);
+
+    try {
+      await onMoveResource(draggedResource, targetFolder);
+    } finally {
+      setDraggedResource(null);
+      setMovePendingId(null);
+    }
+  }
 }
 
 function WorkspaceRow({
+  draggedResource,
+  dropTargetId,
+  isMovePending,
   item,
   onDelete,
   onDownload,
-  onMove,
+  onDragEnd,
+  onDragStart,
+  onDropResource,
   onOpenFolder,
   onRename,
+  setDropTargetId,
 }: WorkspaceRowProps) {
   const isFolder = item.item_type === "FOLDER";
   const name = isFolder ? item.folder.name : item.file.stored_filename;
   const updatedAt = isFolder ? item.folder.updated_at : item.file.updated_at;
   const size = isFolder ? "—" : formatBytes(item.file.size_bytes);
   const status = isFolder ? "—" : item.file.status;
+  const folder = isFolder ? item.folder : null;
+  const canAcceptDrop =
+    folder && draggedResource
+      ? canDropResource(draggedResource, folder)
+      : false;
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <TableRow
-          className={
+          className={cn(
             isFolder
               ? "cursor-pointer transition-colors hover:bg-muted/20"
-              : "cursor-default"
+              : "cursor-default",
+            canAcceptDrop &&
+              "data-[drop-target=true]:bg-primary/8 data-[drop-target=true]:ring-1 data-[drop-target=true]:ring-primary/20",
+            isMovePending && "opacity-80",
+          )}
+          data-drop-target={
+            canAcceptDrop && folder?.id === dropTargetId ? true : undefined
           }
+          draggable
+          onDragEnd={onDragEnd}
+          onDragEnter={() => {
+            if (folder && canAcceptDrop) {
+              setDropTargetId(folder.id);
+            }
+          }}
+          onDragOver={(event) => {
+            if (!folder || !canAcceptDrop) {
+              return;
+            }
+
+            event.preventDefault();
+            if (dropTargetId !== folder.id) {
+              setDropTargetId(folder.id);
+            }
+          }}
+          onDragLeave={() => {
+            if (folder?.id === dropTargetId) {
+              setDropTargetId(null);
+            }
+          }}
+          onDragStart={(event) => {
+            event.dataTransfer.effectAllowed = "move";
+            onDragStart();
+          }}
+          onDrop={(event) => {
+            if (!folder || !canAcceptDrop) {
+              return;
+            }
+
+            event.preventDefault();
+            onDropResource(folder);
+          }}
           onClick={isFolder ? onOpenFolder : undefined}
         >
           <TableCell className="font-medium">
@@ -204,12 +295,7 @@ function WorkspaceRow({
         </TableRow>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {isFolder ? (
-          <ContextMenuItem onClick={onOpenFolder}>
-            <FolderOpenIcon />
-            Open folder
-          </ContextMenuItem>
-        ) : (
+        {isFolder ? null : (
           <ContextMenuItem onClick={onDownload}>
             <ArrowDownToLineIcon />
             Download file
@@ -219,15 +305,33 @@ function WorkspaceRow({
           <PencilIcon />
           Rename
         </ContextMenuItem>
-        <ContextMenuItem onClick={onMove}>
-          <FolderInputIcon />
-          Move
-        </ContextMenuItem>
         <ContextMenuItem onClick={onDelete}>
           <TrashIcon />
           Delete
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+function canDropResource(
+  resource: ActionResource,
+  targetFolder: Folder,
+): boolean {
+  if (resource.kind === "file") {
+    return resource.parentId !== targetFolder.id;
+  }
+
+  if (resource.id === targetFolder.id) {
+    return false;
+  }
+
+  if (!resource.pathCache || !targetFolder.path_cache) {
+    return true;
+  }
+
+  return (
+    targetFolder.path_cache !== resource.pathCache &&
+    !targetFolder.path_cache.startsWith(`${resource.pathCache}/`)
   );
 }

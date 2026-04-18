@@ -495,6 +495,33 @@ export function WorkspaceScreen() {
     }
   }
 
+  async function handleMoveResource(
+    resource: ActionResource,
+    targetFolder: Folder,
+  ) {
+    if (!contents) {
+      return;
+    }
+
+    try {
+      if (resource.kind === "folder") {
+        await moveFolder(authToken, resource.id, {
+          target_parent_id: targetFolder.id,
+        });
+        toast.success("Folder moved");
+      } else {
+        await moveFile(authToken, resource.id, {
+          target_folder_id: targetFolder.id,
+        });
+        toast.success("File moved");
+      }
+
+      await loadWorkspace(authToken, contents.folder.id);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  }
+
   return (
     <>
       <WorkspaceActionDialog
@@ -566,6 +593,7 @@ export function WorkspaceScreen() {
                 onDeleteResource={setDeleteDialogResource}
                 onDownloadFile={handleDownload}
                 onEditResource={setEditDialogState}
+                onMoveResource={handleMoveResource}
                 onOpenFolder={openFolder}
                 resourceResults={resourceResults}
                 searchQuery={searchQuery}

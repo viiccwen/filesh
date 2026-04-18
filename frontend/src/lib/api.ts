@@ -8,15 +8,21 @@ import {
 } from "@/features/auth/schemas";
 import {
   folderContentsSchema,
-  resourceSearchResponseSchema,
   folderSchema,
+  fileReadSchema,
+  resourceSearchResponseSchema,
   shareFormSchema,
+  shareAccessResponseSchema,
   shareSchema,
+  sharedFolderContentsResponseSchema,
   type Folder,
   type FolderContents,
+  type FileRead,
   type ResourceSearchResponse,
   type ShareFormValues,
   type Share,
+  type ShareAccessResponse,
+  type SharedFolderContentsResponse,
 } from "@/features/workspace/schemas";
 
 const API_BASE_URL =
@@ -390,5 +396,62 @@ export function revokeFolderShare(
     method: "DELETE",
     accessToken,
     responseType: "void",
+  });
+}
+
+export function getShareAccess(
+  token: string,
+  accessToken?: string | null,
+): Promise<ShareAccessResponse> {
+  return request<ShareAccessResponse>(`/s/${token}`, {
+    accessToken,
+    parse: (value) => shareAccessResponseSchema.parse(value),
+  });
+}
+
+export function getSharedFolderContents(
+  token: string,
+  accessToken?: string | null,
+  folderId?: string,
+): Promise<SharedFolderContentsResponse> {
+  const path = folderId
+    ? `/s/${token}/folders/${folderId}/contents`
+    : `/s/${token}/contents`;
+
+  return request<SharedFolderContentsResponse>(path, {
+    accessToken,
+    parse: (value) => sharedFolderContentsResponseSchema.parse(value),
+  });
+}
+
+export function getSharedFileMetadata(
+  token: string,
+  fileId: string,
+  accessToken?: string | null,
+): Promise<FileRead> {
+  return request<FileRead>(`/s/${token}/files/${fileId}`, {
+    accessToken,
+    parse: (value) => fileReadSchema.parse(value),
+  });
+}
+
+export function downloadSharedFile(
+  token: string,
+  accessToken?: string | null,
+): Promise<Blob> {
+  return request<Blob>(`/s/${token}/download`, {
+    accessToken,
+    responseType: "blob",
+  });
+}
+
+export function downloadSharedFolderFile(
+  token: string,
+  fileId: string,
+  accessToken?: string | null,
+): Promise<Blob> {
+  return request<Blob>(`/s/${token}/files/${fileId}/download`, {
+    accessToken,
+    responseType: "blob",
   });
 }

@@ -25,6 +25,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 import type {
   SortKey,
@@ -32,7 +41,6 @@ import type {
   WorkspacePaginationProps,
 } from "./workspace-screen.types";
 import { PAGE_SIZE_OPTIONS } from "./workspace-screen.utils";
-import { Button } from "@/components/ui/button";
 
 export function WorkspaceToolbar({
   breadcrumbFolders,
@@ -87,10 +95,6 @@ export function WorkspaceToolbar({
             <h1 className="text-4xl tracking-[-0.05em] text-foreground sm:text-5xl">
               File management
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-              Browse folders and files together in one workspace table, then use
-              right click for the actions that matter.
-            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -200,33 +204,83 @@ export function WorkspacePagination({
   totalItems,
   totalPages,
 }: WorkspacePaginationProps) {
+  const pages = buildPaginationItems(pageIndex, totalPages);
+
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
       <p className="text-sm text-muted-foreground">
         Showing {totalItems ? (pageIndex - 1) * pageSize + 1 : 0} to{" "}
         {Math.min(pageIndex * pageSize, totalItems)} of {totalItems} items
       </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          disabled={pageIndex === 1 || pending}
-          onClick={() => setPageIndex((current) => Math.max(1, current - 1))}
-          variant="outline"
-        >
-          Previous
-        </Button>
-        <Badge variant="outline">
-          Page {pageIndex} of {totalPages}
-        </Badge>
-        <Button
-          disabled={pending || pageIndex >= totalPages}
-          onClick={() =>
-            setPageIndex((current) => Math.min(totalPages, current + 1))
-          }
-          variant="outline"
-        >
-          Next
-        </Button>
-      </div>
+      <Pagination className="mx-0 w-auto justify-start lg:justify-end">
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              disabled={pageIndex === 1 || pending}
+              onClick={() =>
+                setPageIndex((current) => Math.max(1, current - 1))
+              }
+            />
+          </PaginationItem>
+          {pages.map((page, index) => (
+            <PaginationItem key={`${page}-${index}`}>
+              {page === "ellipsis" ? (
+                <PaginationEllipsis />
+              ) : (
+                <PaginationLink
+                  disabled={pending}
+                  isActive={page === pageIndex}
+                  onClick={() => setPageIndex(page)}
+                >
+                  {page}
+                </PaginationLink>
+              )}
+            </PaginationItem>
+          ))}
+          <PaginationItem>
+            <PaginationNext
+              disabled={pending || pageIndex >= totalPages}
+              onClick={() =>
+                setPageIndex((current) => Math.min(totalPages, current + 1))
+              }
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
     </div>
   );
+}
+
+function buildPaginationItems(
+  pageIndex: number,
+  totalPages: number,
+): Array<number | "ellipsis"> {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  if (pageIndex <= 3) {
+    return [1, 2, 3, 4, "ellipsis", totalPages];
+  }
+
+  if (pageIndex >= totalPages - 2) {
+    return [
+      1,
+      "ellipsis",
+      totalPages - 3,
+      totalPages - 2,
+      totalPages - 1,
+      totalPages,
+    ];
+  }
+
+  return [
+    1,
+    "ellipsis",
+    pageIndex - 1,
+    pageIndex,
+    pageIndex + 1,
+    "ellipsis",
+    totalPages,
+  ];
 }

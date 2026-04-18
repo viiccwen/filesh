@@ -50,6 +50,10 @@ export type WorkspaceResultsProps = {
   onDeleteResource: (resource: ActionResource) => void;
   onDownloadFile: (fileId: string, filename: string) => Promise<void>;
   onEditResource: (state: EditDialogState) => void;
+  onMoveResource: (
+    resource: ActionResource,
+    targetFolder: Folder,
+  ) => Promise<void>;
   onOpenFolder: (folderId: string) => Promise<void>;
   resourceResults: ResourceSearchResponse | null;
   searchQuery: string;
@@ -57,12 +61,18 @@ export type WorkspaceResultsProps = {
 };
 
 export type WorkspaceRowProps = {
+  draggedResource: ActionResource | null;
+  dropTargetId: string | null;
+  isMovePending: boolean;
   item: ResourceSearchItem;
   onDelete: () => void;
   onDownload: () => void;
-  onMove: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDropResource: (targetFolder: Folder) => void;
   onOpenFolder: () => void;
   onRename: () => void;
+  setDropTargetId: (folderId: string | null) => void;
 };
 
 export type WorkspaceActionDialogProps = {
