@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
 import jwt
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Response
 
 from app.core.config import settings
@@ -81,3 +84,20 @@ def clear_refresh_cookie(response: Response) -> None:
         samesite="lax",
         path="/",
     )
+
+
+def encrypt_share_token(raw_token: str) -> str:
+    return _get_share_token_fernet().encrypt(raw_token.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_share_token(token_ciphertext: str) -> str | None:
+    try:
+        return _get_share_token_fernet().decrypt(token_ciphertext.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        return None
+
+
+def _get_share_token_fernet() -> Fernet:
+    digest = hashlib.sha256(settings.share_token_secret.encode("utf-8")).digest()
+    derived_key = base64.urlsafe_b64encode(digest)
+    return Fernet(derived_key)

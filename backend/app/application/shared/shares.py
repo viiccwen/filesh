@@ -15,6 +15,7 @@ from app.application.shared.folders import (
     get_folder_for_owner,
     list_folder_contents,
 )
+from app.core.security import decrypt_share_token, encrypt_share_token
 from app.domain import (
     AuthorizationError,
     ConflictError,
@@ -115,6 +116,17 @@ def to_share_read(share_link: ShareLink, raw_token: str) -> ShareReadDTO:
     )
 
 
+def resolve_share_read_token(share_link: ShareLink) -> str:
+    if share_link.token_ciphertext is None:
+        return "[redacted]"
+
+    decrypted_token = decrypt_share_token(share_link.token_ciphertext)
+    if decrypted_token is None:
+        return "[redacted]"
+
+    return decrypted_token
+
+
 def create_share(
     session: Session,
     owner: AuthenticatedUser,
@@ -140,6 +152,7 @@ def create_share(
         share_mode=payload.share_mode,
         permission_level=payload.permission_level,
         token_hash=hash_share_token(raw_token),
+        token_ciphertext=encrypt_share_token(raw_token),
         expires_at=resolve_expiry(payload.expiry),
         is_revoked=False,
     )
@@ -197,7 +210,7 @@ def update_share(
 
     session.commit()
     session.refresh(share_link)
-    return to_share_read(share_link, "[redacted]")
+    return to_share_read(share_link, resolve_share_read_token(share_link))
 
 
 def get_share(
@@ -210,7 +223,7 @@ def get_share(
     share_link = get_active_share_for_resource(session, resource_type, resource_id)
     if share_link is None:
         raise NotFoundError("Active share link not found")
-    return to_share_read(share_link, "[redacted]")
+    return to_share_read(share_link, resolve_share_read_token(share_link))
 
 
 def revoke_share(

@@ -31,6 +31,7 @@ class ShareLink(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Enum(PermissionLevel, name="permission_level_enum")
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    token_ciphertext: Mapped[str | None] = mapped_column(String(512), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

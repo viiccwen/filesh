@@ -199,7 +199,7 @@ def test_expired_share_returns_gone(client, session) -> None:
     assert response.status_code == 410
 
 
-def test_share_get_update_returns_redacted_url_for_owner(client) -> None:
+def test_share_get_update_returns_active_url_for_owner(client, session) -> None:
     headers = register_and_login(client, "owner-view@example.com", "owner-view-user")
     folder_response = client.post("/api/folders", headers=headers, json={"name": "inspect"})
     create_response = client.post(
@@ -211,6 +211,10 @@ def test_share_get_update_returns_redacted_url_for_owner(client) -> None:
             "expiry": "never",
             "invitation_emails": [],
         },
+    )
+    create_token = create_response.json()["share_url"].split("/s/")[1]
+    share_link = session.scalar(
+        select(ShareLink).where(ShareLink.token_hash == hash_share_token(create_token))
     )
 
     get_response = client.get(f"/api/folders/{folder_response.json()['id']}/share", headers=headers)
@@ -227,10 +231,14 @@ def test_share_get_update_returns_redacted_url_for_owner(client) -> None:
 
     assert create_response.status_code == 201
     assert get_response.status_code == 200
-    assert get_response.json()["share_url"] == "/s/[redacted]"
+    assert share_link is not None
+    assert share_link.token_ciphertext is not None
+    assert create_token not in share_link.token_ciphertext
+    assert get_response.json()["share_url"] == create_response.json()["share_url"]
     assert patch_response.status_code == 200
     assert patch_response.json()["share_mode"] == "USER_ONLY"
     assert patch_response.json()["resource_type"] == ResourceType.FOLDER
+    assert patch_response.json()["share_url"] == create_response.json()["share_url"]
 
 
 def test_folder_share_upload_permission_allows_creating_subfolder(client) -> None:

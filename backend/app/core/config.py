@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     )
     otel_service_name: str = Field(default="filesh-backend", alias="OTEL_SERVICE_NAME")
     jwt_secret: str = Field(default=DEFAULT_JWT_SECRET, alias="JWT_SECRET")
+    share_token_secret: str = Field(default=DEFAULT_JWT_SECRET, alias="SHARE_TOKEN_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     refresh_token_expire_days: int = Field(default=7, alias="REFRESH_TOKEN_EXPIRE_DAYS")
