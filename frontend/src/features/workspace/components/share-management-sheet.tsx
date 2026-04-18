@@ -63,6 +63,7 @@ export function ShareManagementSheet({
   const [error, setError] = useState<string | null>(null);
   const [emailList, setEmailList] = useState("");
   const [values, setValues] = useState<ShareFormValues>(defaultValues);
+  const isRedactedLink = share?.share_url.includes("[redacted]") ?? false;
 
   useEffect(() => {
     if (!share) {
@@ -244,7 +245,22 @@ export function ShareManagementSheet({
               <Field>
                 <FieldLabel htmlFor="share-link">Active link</FieldLabel>
                 <FieldContent>
-                  <Input id="share-link" readOnly value={share.share_url} />
+                  <Input
+                    id="share-link"
+                    readOnly
+                    value={
+                      isRedactedLink
+                        ? "Link hidden by backend after creation"
+                        : share.share_url
+                    }
+                  />
+                  {isRedactedLink ? (
+                    <FieldDescription>
+                      The backend stores only a hashed token after creation, so
+                      it can no longer return the original share URL. Revoke and
+                      create a new share if you need a fresh link.
+                    </FieldDescription>
+                  ) : null}
                 </FieldContent>
               </Field>
             ) : null}
@@ -264,7 +280,7 @@ export function ShareManagementSheet({
                 {share ? "Update share" : "Create share"}
               </Button>
               <Button
-                disabled={!share || pending}
+                disabled={!share || pending || isRedactedLink}
                 onClick={() => void onCopyLink()}
                 type="button"
                 variant="outline"
