@@ -1,11 +1,10 @@
-import { ArrowRightIcon, SparklesIcon } from "lucide-react";
+import { ArrowRightIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AppNavbar, AppNavbarUser } from "@/components/app-navbar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/features/auth/store";
-import { getInitials } from "@/lib/format";
 
 export function LandingPage() {
   const status = useAuthStore((state) => state.status);
@@ -18,54 +17,26 @@ export function LandingPage() {
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 pb-10 pt-2 sm:gap-10 sm:pb-14">
-        <header className="sticky top-4 z-40">
-          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 rounded-full border border-border/70 bg-background/78 px-3 py-3 shadow-lg shadow-black/5 ring-1 ring-white/55 backdrop-blur-xl sm:px-5">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-full bg-foreground text-background">
-                <SparklesIcon />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold tracking-[0.22em] text-foreground uppercase">
-                  filesh
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Share files like a real product, not a folder dump.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 sm:gap-3">
-              {isAuthenticated ? (
-                <>
-                  <Button asChild variant="ghost">
-                    <Link to="/app">Workspace</Link>
-                  </Button>
-                  <Avatar className="size-10 border border-border/70 bg-card">
-                    <AvatarFallback>
-                      {getInitials(user.nickname)}
-                    </AvatarFallback>
-                  </Avatar>
-                </>
-              ) : (
-                <>
-                  <Button
-                    asChild
-                    className="hidden sm:inline-flex"
-                    variant="ghost"
-                  >
-                    <Link to="/login">Login</Link>
-                  </Button>
-                  <Button asChild>
-                    <Link to="/register">Register</Link>
-                  </Button>
-                  <Avatar className="size-10 border border-border/70 bg-card">
-                    <AvatarFallback>FS</AvatarFallback>
-                  </Avatar>
-                </>
-              )}
-            </div>
-          </div>
-        </header>
+        <AppNavbar innerClassName="max-w-5xl">
+          {isAuthenticated ? (
+            <>
+              <Button asChild variant="ghost">
+                <Link to="/app">Workspace</Link>
+              </Button>
+              <AppNavbarUser nickname={user.nickname} />
+            </>
+          ) : (
+            <>
+              <Button asChild className="hidden sm:inline-flex" variant="ghost">
+                <Link to="/login">Login</Link>
+              </Button>
+              <Button asChild>
+                <Link to="/register">Register</Link>
+              </Button>
+              <AppNavbarUser />
+            </>
+          )}
+        </AppNavbar>
 
         <main className="relative flex min-h-[calc(100vh-8rem)] items-center justify-center overflow-hidden rounded-[2.75rem] px-4 py-16 sm:px-8 sm:py-24">
           <div className="absolute inset-x-0 top-0 h-48 bg-linear-to-br from-primary/10 via-transparent to-chart-2/12" />
@@ -93,7 +64,7 @@ export function LandingPage() {
                 </Link>
               </Button>
               <Button asChild className="rounded-full px-6" variant="outline">
-                <Link to="/login">See the sign-in flow</Link>
+                <Link to="/login">Login</Link>
               </Button>
             </div>
           </section>

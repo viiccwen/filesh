@@ -5,13 +5,12 @@ import {
   Link2Icon,
   Loader2Icon,
   LogOutIcon,
-  ShieldCheckIcon,
-  SparklesIcon,
 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
+import { AppNavbar, AppNavbarUser } from "@/components/app-navbar";
 import {
   ApiError,
   downloadSharedFile,
@@ -19,7 +18,7 @@ import {
   getShareAccess,
   getSharedFolderContents,
 } from "@/lib/api";
-import { formatBytes, formatDate, getInitials } from "@/lib/format";
+import { formatBytes, formatDate } from "@/lib/format";
 import { useAuthStore } from "@/features/auth/store";
 import type {
   FileSummary,
@@ -28,7 +27,6 @@ import type {
   SharedFolderContentsResponse,
 } from "@/features/workspace/schemas";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
@@ -132,9 +130,7 @@ export function ShareAccessPage() {
     return (
       <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 pb-10 pt-2">
-          <div className="sticky top-4 z-40 rounded-full border border-border/70 bg-background/78 px-4 py-3 shadow-lg shadow-black/5 ring-1 ring-white/55 backdrop-blur-xl">
-            <Skeleton className="h-10 rounded-full" />
-          </div>
+          <Skeleton className="h-16 rounded-full" />
           <Skeleton className="h-40 rounded-[2rem]" />
           <Skeleton className="h-[24rem] rounded-[2rem]" />
         </div>
@@ -145,54 +141,30 @@ export function ShareAccessPage() {
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-6 pb-10 pt-2">
-        <header className="sticky top-4 z-40">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 rounded-full border border-border/70 bg-background/78 px-3 py-3 shadow-lg shadow-black/5 ring-1 ring-white/55 backdrop-blur-xl sm:px-5">
-            <Link className="flex items-center gap-3" to="/">
-              <div className="flex size-10 items-center justify-center rounded-full bg-foreground text-background">
-                <SparklesIcon />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold tracking-[0.22em] text-foreground uppercase">
-                  filesh
-                </p>
-              </div>
-            </Link>
-
-            <div className="flex items-center gap-3">
-              <Badge variant="outline">Shared access</Badge>
-              {status === "authenticated" && user ? (
-                <>
-                  <Avatar className="size-10 border border-border/70 bg-card">
-                    <AvatarFallback>
-                      {getInitials(user.nickname)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="hidden min-w-0 sm:block">
-                    <p className="truncate text-sm font-medium text-foreground">
-                      {user.nickname}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      @{user.username}
-                    </p>
-                  </div>
-                  <Button
-                    className="rounded-full"
-                    onClick={() => void logout()}
-                    size="icon"
-                    variant="outline"
-                  >
-                    <LogOutIcon data-icon="inline-start" />
-                    <span className="sr-only">Log out</span>
-                  </Button>
-                </>
-              ) : (
-                <Button asChild className="rounded-full" variant="outline">
-                  <Link to="/login">Login</Link>
-                </Button>
-              )}
-            </div>
-          </div>
-        </header>
+        <AppNavbar innerClassName="max-w-7xl">
+          <Badge variant="outline">Shared access</Badge>
+          {status === "authenticated" && user ? (
+            <>
+              <AppNavbarUser
+                nickname={user.nickname}
+                username={user.username}
+              />
+              <Button
+                className="rounded-full"
+                onClick={() => void logout()}
+                size="icon"
+                variant="outline"
+              >
+                <LogOutIcon data-icon="inline-start" />
+                <span className="sr-only">Log out</span>
+              </Button>
+            </>
+          ) : (
+            <Button asChild className="rounded-full" variant="outline">
+              <Link to="/login">Login</Link>
+            </Button>
+          )}
+        </AppNavbar>
 
         {error ? (
           <Alert variant="destructive">

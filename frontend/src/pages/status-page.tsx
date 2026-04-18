@@ -6,6 +6,7 @@ import {
   Link2OffIcon,
 } from "lucide-react";
 
+import { AppNavbar } from "@/components/app-navbar";
 import { Button } from "@/components/ui/button";
 
 const statusCopy = {
@@ -44,31 +45,39 @@ export function StatusPage({ kind }: { kind: keyof typeof statusCopy }) {
 
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
-      <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-7xl items-center justify-center">
-        <main className="relative flex w-full max-w-3xl flex-col items-center justify-center overflow-hidden rounded-[2.75rem] border border-border/70 bg-background/80 px-6 py-16 text-center shadow-lg shadow-black/5 ring-1 ring-white/45 backdrop-blur-xl sm:px-10 sm:py-24">
-          <div className="absolute inset-x-0 top-0 h-40 bg-linear-to-br from-primary/10 via-transparent to-chart-2/12" />
-          <div className="absolute left-1/2 top-10 size-72 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
-          <div className="absolute bottom-0 right-0 size-56 rounded-full bg-chart-1/15 blur-3xl" />
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 pb-10 pt-2">
+        <AppNavbar innerClassName="max-w-5xl">
+          <Button asChild className="rounded-full" variant="outline">
+            <Link to="/">Home</Link>
+          </Button>
+        </AppNavbar>
 
-          <div className="relative flex max-w-2xl flex-col items-center gap-6">
-            <div className="flex size-18 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Icon />
+        <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
+          <main className="relative flex w-full max-w-3xl flex-col items-center justify-center overflow-hidden rounded-[2.75rem] border border-border/70 bg-background/80 px-6 py-16 text-center shadow-lg shadow-black/5 ring-1 ring-white/45 backdrop-blur-xl sm:px-10 sm:py-24">
+            <div className="absolute inset-x-0 top-0 h-40 bg-linear-to-br from-primary/10 via-transparent to-chart-2/12" />
+            <div className="absolute left-1/2 top-10 size-72 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
+            <div className="absolute bottom-0 right-0 size-56 rounded-full bg-chart-1/15 blur-3xl" />
+
+            <div className="relative flex max-w-2xl flex-col items-center gap-6">
+              <div className="flex size-18 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Icon />
+              </div>
+              <div className="space-y-4">
+                <h1 className="text-4xl tracking-[-0.05em] text-foreground sm:text-5xl">
+                  {copy.title}
+                </h1>
+                <p className="text-sm leading-7 text-muted-foreground sm:text-base">
+                  {copy.description}
+                </p>
+              </div>
+              <Button asChild className="rounded-full px-6">
+                <Link to={kind === "unauthorized" ? "/login" : "/"}>
+                  {copy.actionLabel}
+                </Link>
+              </Button>
             </div>
-            <div className="space-y-4">
-              <h1 className="text-4xl tracking-[-0.05em] text-foreground sm:text-5xl">
-                {copy.title}
-              </h1>
-              <p className="text-sm leading-7 text-muted-foreground sm:text-base">
-                {copy.description}
-              </p>
-            </div>
-            <Button asChild className="rounded-full px-6">
-              <Link to={kind === "unauthorized" ? "/login" : "/"}>
-                {copy.actionLabel}
-              </Link>
-            </Button>
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );

@@ -1,11 +1,9 @@
 import { Link } from "react-router-dom";
-import { SparklesIcon } from "lucide-react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AppNavbar, AppNavbarUser } from "@/components/app-navbar";
 import { Button } from "@/components/ui/button";
 import { LoginCard } from "@/features/auth/components/auth-shell";
 import { useAuthStore } from "@/features/auth/store";
-import { getInitials } from "@/lib/format";
 
 export function LoginPage() {
   const user = useAuthStore((state) => state.user);
@@ -13,34 +11,12 @@ export function LoginPage() {
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-8 pb-10 pt-2">
-        <header className="sticky top-4 z-40">
-          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 rounded-full border border-border/70 bg-background/78 px-3 py-3 shadow-lg shadow-black/5 ring-1 ring-white/55 backdrop-blur-xl sm:px-5">
-            <Link className="flex items-center gap-3" to="/">
-              <div className="flex size-10 items-center justify-center rounded-full bg-foreground text-background">
-                <SparklesIcon />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold tracking-[0.22em] text-foreground uppercase">
-                  filesh
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Return to the product landing.
-                </p>
-              </div>
-            </Link>
-
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Button asChild className="hidden sm:inline-flex" variant="ghost">
-                <Link to="/register">Register</Link>
-              </Button>
-              <Avatar className="size-10 border border-border/70 bg-card">
-                <AvatarFallback>
-                  {user ? getInitials(user.nickname) : "FS"}
-                </AvatarFallback>
-              </Avatar>
-            </div>
-          </div>
-        </header>
+        <AppNavbar innerClassName="max-w-5xl">
+          <Button asChild className="hidden sm:inline-flex" variant="ghost">
+            <Link to="/register">Register</Link>
+          </Button>
+          <AppNavbarUser nickname={user?.nickname} />
+        </AppNavbar>
 
         <main className="relative flex min-h-[calc(100vh-10rem)] items-center justify-center overflow-hidden rounded-[2.75rem] px-4 py-16 sm:px-8 sm:py-24">
           <div className="absolute inset-x-0 top-0 h-40 bg-linear-to-br from-primary/10 via-transparent to-chart-2/12" />
