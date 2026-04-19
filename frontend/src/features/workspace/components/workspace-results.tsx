@@ -65,6 +65,9 @@ export function WorkspaceResults({
   );
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [movePendingId, setMovePendingId] = useState<string | null>(null);
+  const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(
+    null,
+  );
 
   const resources = useMemo(
     () =>
@@ -96,6 +99,7 @@ export function WorkspaceResults({
 
   useEffect(() => {
     setSelectedResourceIds([]);
+    setSelectionAnchorId(null);
   }, [resourceResults?.items]);
 
   if (workspacePending && !contents) {
@@ -199,6 +203,41 @@ export function WorkspaceResults({
                 const resourceId =
                   item.item_type === "FOLDER" ? item.folder.id : item.file.id;
 
+                if (event.shiftKey) {
+                  event.preventDefault();
+
+                  if (!selectionAnchorId) {
+                    setSelectedResourceIds([resourceId]);
+                    setSelectionAnchorId(resourceId);
+                    return;
+                  }
+
+                  const anchorIndex = resources.findIndex(
+                    (resource) => resource.id === selectionAnchorId,
+                  );
+                  const currentIndex = resources.findIndex(
+                    (resource) => resource.id === resourceId,
+                  );
+
+                  if (anchorIndex === -1 || currentIndex === -1) {
+                    setSelectedResourceIds([resourceId]);
+                    setSelectionAnchorId(resourceId);
+                    return;
+                  }
+
+                  const [startIndex, endIndex] =
+                    anchorIndex < currentIndex
+                      ? [anchorIndex, currentIndex]
+                      : [currentIndex, anchorIndex];
+
+                  setSelectedResourceIds(
+                    resources
+                      .slice(startIndex, endIndex + 1)
+                      .map((resource) => resource.id),
+                  );
+                  return;
+                }
+
                 if (event.metaKey || event.ctrlKey) {
                   event.preventDefault();
                   setSelectedResourceIds((current) =>
@@ -206,6 +245,7 @@ export function WorkspaceResults({
                       ? current.filter((id) => id !== resourceId)
                       : [...current, resourceId],
                   );
+                  setSelectionAnchorId(resourceId);
                 }
               }}
               onRename={() =>
@@ -330,7 +370,7 @@ function WorkspaceRow({
           }}
           onPointerDown={onPointerDown}
           onClick={(event) => {
-            if (event.metaKey || event.ctrlKey) {
+            if (event.metaKey || event.ctrlKey || event.shiftKey) {
               return;
             }
 
