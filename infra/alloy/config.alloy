@@ -13,11 +13,47 @@ discovery.docker "containers" {
   host = "unix:///var/run/docker.sock"
 }
 
+loki.relabel "docker_logs" {
+  forward_to = [loki.write.local.receiver]
+
+  rule {
+    action        = "replace"
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    replacement   = "$1"
+    target_label  = "container"
+  }
+
+  rule {
+    action        = "replace"
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "(.+)"
+    replacement   = "$1"
+    target_label  = "service"
+  }
+
+  rule {
+    action        = "replace"
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "(.+)"
+    replacement   = "$1"
+    target_label  = "compose_project"
+  }
+
+  rule {
+    action        = "replace"
+    source_labels = ["service", "container"]
+    regex         = ";(.+)"
+    replacement   = "$1"
+    target_label  = "service"
+  }
+}
+
 loki.source.docker "containers" {
   host       = "unix:///var/run/docker.sock"
   targets    = discovery.docker.containers.targets
   labels     = {job = "docker", source = "alloy"}
-  forward_to = [loki.write.local.receiver]
+  forward_to = [loki.relabel.docker_logs.receiver]
 }
 
 otelcol.receiver.otlp "filesh" {
