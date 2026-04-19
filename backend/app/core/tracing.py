@@ -46,6 +46,21 @@ def get_tracer(name: str):
     return trace.get_tracer(name)
 
 
+def get_current_trace_context_ids() -> tuple[str | None, str | None]:
+    span = trace.get_current_span()
+    if span is None:
+        return None, None
+
+    span_context = span.get_span_context()
+    if not span_context.is_valid:
+        return None, None
+
+    return (
+        f"{span_context.trace_id:032x}",
+        f"{span_context.span_id:016x}",
+    )
+
+
 def inject_trace_context(metadata: Mapping[str, Any] | None = None) -> dict[str, Any]:
     payload = dict(metadata or {})
     if not settings.tracing_enabled:

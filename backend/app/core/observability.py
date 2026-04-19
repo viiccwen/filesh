@@ -11,6 +11,7 @@ from prometheus_client import start_http_server as prometheus_start_http_server
 from pythonjsonlogger.json import JsonFormatter
 
 from app.core.config import settings
+from app.core.tracing import get_current_trace_context_ids
 
 request_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "request_id",
@@ -59,13 +60,16 @@ def configure_logging() -> None:
     if settings.log_json:
         handler.setFormatter(
             JsonFormatter(
-                "%(asctime)s %(levelname)s %(name)s %(message)s %(request_id)s",
+                "%(asctime)s %(levelname)s %(name)s %(message)s "
+                "%(request_id)s %(trace_id)s %(span_id)s",
             )
         )
     else:
         handler.setFormatter(
             logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s [request_id=%(request_id)s] %(message)s",
+                "%(asctime)s %(levelname)s %(name)s "
+                "[request_id=%(request_id)s trace_id=%(trace_id)s span_id=%(span_id)s] "
+                "%(message)s",
             )
         )
     handler.addFilter(RequestContextFilter())
@@ -78,6 +82,9 @@ def configure_logging() -> None:
 class RequestContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = get_request_id() or "-"
+        trace_id, span_id = get_current_trace_context_ids()
+        record.trace_id = trace_id or "-"
+        record.span_id = span_id or "-"
         return True
 
 
@@ -157,6 +164,11 @@ def request_log_extra(**extra: Any) -> dict[str, Any]:
     payload = dict(extra)
     if "request_id" not in payload:
         payload["request_id"] = get_request_id()
+    trace_id, span_id = get_current_trace_context_ids()
+    if "trace_id" not in payload:
+        payload["trace_id"] = trace_id
+    if "span_id" not in payload:
+        payload["span_id"] = span_id
     return payload
 
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 from opentelemetry import trace
 from opentelemetry.context import attach, detach
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from app.core.events import build_cleanup_event
-from app.core.observability import get_or_create_request_id
+from app.core.observability import RequestContextFilter, get_or_create_request_id, request_log_extra
 from app.core.tracing import TRACE_CONTEXT_METADATA_KEY
 from tests_helpers import register_and_login
 
@@ -85,3 +87,39 @@ def test_cleanup_events_include_trace_context(monkeypatch) -> None:
 
     assert TRACE_CONTEXT_METADATA_KEY in event["metadata"]
     assert "traceparent" in event["metadata"][TRACE_CONTEXT_METADATA_KEY]
+
+
+def test_request_log_extra_includes_trace_ids_from_current_span() -> None:
+    span_context = SpanContext(
+        trace_id=0x1234567890ABCDEF1234567890ABCDEF,
+        span_id=0x1234567890ABCDEF,
+        is_remote=False,
+        trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        trace_state=trace.DEFAULT_TRACE_STATE,
+    )
+    context = trace.set_span_in_context(NonRecordingSpan(span_context))
+    token = attach(context)
+    try:
+        payload = request_log_extra(action="test")
+    finally:
+        detach(token)
+
+    assert payload["trace_id"] == "1234567890abcdef1234567890abcdef"
+    assert payload["span_id"] == "1234567890abcdef"
+
+
+def test_request_context_filter_defaults_trace_ids_when_missing() -> None:
+    record = logging.LogRecord(
+        name="tests.observability",
+        level=20,
+        pathname=__file__,
+        lineno=0,
+        msg="hello",
+        args=(),
+        exc_info=None,
+    )
+
+    RequestContextFilter().filter(record)
+
+    assert record.trace_id == "-"
+    assert record.span_id == "-"
