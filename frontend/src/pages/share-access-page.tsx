@@ -116,8 +116,12 @@ export function ShareAccessPage() {
       return;
     }
 
+    if (status === "booting") {
+      return;
+    }
+
     void bootstrapShareAccess();
-  }, [accessToken, navigate, token]);
+  }, [accessToken, navigate, status, token]);
 
   useEffect(() => {
     if (!editDialogState) {
