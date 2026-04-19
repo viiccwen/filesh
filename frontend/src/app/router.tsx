@@ -69,7 +69,7 @@ function PageFallback() {
       <div className="mx-auto flex max-w-7xl flex-col gap-6 pb-10 pt-2">
         <Skeleton className="h-16 rounded-full" />
         <Skeleton className="h-40 rounded-[2rem]" />
-        <Skeleton className="h-[24rem] rounded-[2rem]" />
+        <Skeleton className="h-96 rounded-[2rem]" />
       </div>
     </div>
   );

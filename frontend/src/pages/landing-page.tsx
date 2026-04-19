@@ -26,15 +26,7 @@ export function LandingPage() {
               <AppNavbarUser nickname={user.nickname} />
             </>
           ) : (
-            <>
-              <Button asChild className="hidden sm:inline-flex" variant="ghost">
-                <Link to="/login">Login</Link>
-              </Button>
-              <Button asChild>
-                <Link to="/register">Register</Link>
-              </Button>
-              <AppNavbarUser />
-            </>
+            <></>
           )}
         </AppNavbar>
 

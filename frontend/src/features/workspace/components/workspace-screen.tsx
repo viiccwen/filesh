@@ -439,7 +439,6 @@ export function WorkspaceScreen() {
           );
 
       setShare(nextShare);
-      setShareSheetOpen(false);
       toast.success(share ? "Share updated" : "Share created");
     } catch (error) {
       toast.error(getErrorMessage(error));

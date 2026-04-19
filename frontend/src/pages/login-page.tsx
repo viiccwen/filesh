@@ -1,13 +1,10 @@
 import { Link } from "react-router-dom";
 
-import { AppNavbar, AppNavbarUser } from "@/components/app-navbar";
+import { AppNavbar } from "@/components/app-navbar";
 import { Button } from "@/components/ui/button";
 import { LoginCard } from "@/features/auth/components/auth-shell";
-import { useAuthStore } from "@/features/auth/store";
 
 export function LoginPage() {
-  const user = useAuthStore((state) => state.user);
-
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-8 pb-10 pt-2">
@@ -15,7 +12,6 @@ export function LoginPage() {
           <Button asChild className="hidden sm:inline-flex" variant="ghost">
             <Link to="/register">Register</Link>
           </Button>
-          <AppNavbarUser nickname={user?.nickname} />
         </AppNavbar>
 
         <main className="relative flex min-h-[calc(100vh-10rem)] items-center justify-center overflow-hidden rounded-[2.75rem] px-4 py-16 sm:px-8 sm:py-24">

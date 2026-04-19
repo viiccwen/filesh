@@ -1,10 +1,4 @@
 import { Link } from "react-router-dom";
-import {
-  FileSearchIcon,
-  FileX2Icon,
-  LockKeyholeIcon,
-  Link2OffIcon,
-} from "lucide-react";
 
 import { AppNavbar } from "@/components/app-navbar";
 import { Button } from "@/components/ui/button";
@@ -14,34 +8,29 @@ const statusCopy = {
     actionLabel: "Return home",
     description:
       "This resource has been deleted, and the old share link is no longer valid.",
-    icon: FileX2Icon,
     title: "This resource was deleted",
   },
   expired: {
     actionLabel: "Open filesh",
     description:
       "This share link has expired. Ask the owner for a fresh link if you still need access.",
-    icon: Link2OffIcon,
     title: "This share link expired",
   },
   "not-found": {
     actionLabel: "Return home",
     description: "The requested resource or share link could not be found.",
-    icon: FileSearchIcon,
     title: "We couldn't find that page",
   },
   unauthorized: {
     actionLabel: "Go to login",
     description:
       "You do not currently have permission to access this resource.",
-    icon: LockKeyholeIcon,
     title: "Access is restricted",
   },
 } as const;
 
 export function StatusPage({ kind }: { kind: keyof typeof statusCopy }) {
   const copy = statusCopy[kind];
-  const Icon = copy.icon;
 
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
@@ -59,9 +48,7 @@ export function StatusPage({ kind }: { kind: keyof typeof statusCopy }) {
             <div className="absolute bottom-0 right-0 size-56 rounded-full bg-chart-1/15 blur-3xl" />
 
             <div className="relative flex max-w-2xl flex-col items-center gap-6">
-              <div className="flex size-18 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Icon />
-              </div>
+              <div className="flex size-18 items-center justify-center"></div>
               <div className="space-y-4">
                 <h1 className="text-4xl tracking-[-0.05em] text-foreground sm:text-5xl">
                   {copy.title}
