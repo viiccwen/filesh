@@ -1,0 +1,69 @@
+groups:
+  - name: filesh-stack
+    rules:
+      - alert: FileshBackendDown
+        expr: up{job="backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: backend
+        annotations:
+          summary: "Filesh backend target is down"
+          description: "Prometheus has failed to scrape the backend target for at least 2 minutes."
+
+      - alert: FileshCleanupWorkerDown
+        expr: up{job="cleanup-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: cleanup-worker
+        annotations:
+          summary: "Filesh cleanup worker target is down"
+          description: "Prometheus has failed to scrape the cleanup worker metrics endpoint for at least 2 minutes."
+
+      - alert: FileshObservabilityTargetDown
+        expr: up{job=~"grafana|loki|tempo|alloy"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Observability target {{ $labels.job }} is down"
+          description: "Prometheus cannot scrape {{ $labels.job }} for at least 5 minutes."
+
+      - alert: FileshHigh5xxRate
+        expr: |
+          100 *
+          sum(rate(filesh_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(filesh_http_requests_total[5m])), 1e-9) > 5
+        for: 10m
+        labels:
+          severity: critical
+          service: backend
+        annotations:
+          summary: "Filesh API 5xx rate is elevated"
+          description: "More than 5% of Filesh HTTP responses have been 5xx for the last 10 minutes."
+
+      - alert: FileshCleanupConsumerLagHigh
+        expr: sum(filesh_cleanup_consumer_lag_messages) > 50
+        for: 10m
+        labels:
+          severity: warning
+          service: cleanup-worker
+        annotations:
+          summary: "Filesh cleanup consumer lag is high"
+          description: "Cleanup consumer lag has stayed above 50 messages for at least 10 minutes."
+
+      - alert: FileshCleanupProcessingSlow
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(filesh_cleanup_event_duration_seconds_bucket[10m]))
+          ) > 5
+        for: 15m
+        labels:
+          severity: warning
+          service: cleanup-worker
+        annotations:
+          summary: "Filesh cleanup processing p95 is slow"
+          description: "Cleanup event processing p95 latency has been above 5 seconds for at least 15 minutes."

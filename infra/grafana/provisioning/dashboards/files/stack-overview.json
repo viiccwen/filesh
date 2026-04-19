@@ -287,7 +287,7 @@
       },
       "id": 6,
       "options": {
-        "content": "### Observability Stack Notes\n\n- `Prometheus`, `Grafana`, `Loki`, `Tempo`, and `Alloy` are scraped into Prometheus for stack-level health panels.\n- Loki and Tempo datasources are provisioned in Grafana.\n- Alloy now ships Docker container logs to Loki and OTLP traces to Tempo.\n- If a logs panel is empty, first confirm the container has emitted stdout or stderr after Alloy started and that `/var/run/docker.sock` is mounted into the Alloy service.",
+        "content": "### Observability Stack Notes\n\n- `Prometheus`, `Grafana`, `Loki`, `Tempo`, and `Alloy` are scraped into Prometheus for stack-level health panels.\n- Loki and Tempo datasources are provisioned in Grafana.\n- Alloy now ships Docker container logs to Loki and OTLP traces to Tempo.\n- Prometheus alert rules now cover backend down, cleanup worker down, observability target down, elevated 5xx rate, cleanup lag, and slow cleanup processing.\n- If a logs panel is empty, first confirm the container has emitted stdout or stderr after Alloy started and that `/var/run/docker.sock` is mounted into the Alloy service.",
         "mode": "markdown"
       },
       "pluginVersion": "11.5.2",
