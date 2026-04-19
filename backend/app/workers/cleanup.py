@@ -13,7 +13,9 @@ from app.core.observability import (
     configure_logging,
     current_time,
     observe_cleanup_consumer_position,
+    observe_cleanup_dlq,
     observe_cleanup_event,
+    observe_cleanup_retry,
     request_log_extra,
     start_metrics_server,
 )
@@ -272,6 +274,10 @@ def process_cleanup_message(
                     outcome="dlq",
                     duration=current_time() - started_at,
                 )
+                observe_cleanup_dlq(
+                    event_type=event_type,
+                    topic=topic,
+                )
                 logger.exception(
                     "cleanup event sent to dlq",
                     extra=request_log_extra(event_type=event_type, topic=topic),
@@ -288,6 +294,10 @@ def process_cleanup_message(
                     topic=topic,
                     outcome="retry",
                     duration=current_time() - started_at,
+                )
+                observe_cleanup_retry(
+                    event_type=event_type,
+                    topic=topic,
                 )
                 logger.warning(
                     "cleanup event scheduled for retry",

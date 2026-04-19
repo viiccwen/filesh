@@ -38,6 +38,16 @@ cleanup_event_duration_seconds = Histogram(
     "Cleanup worker processing latency in seconds.",
     ["event_type", "topic", "outcome"],
 )
+cleanup_retries_total = Counter(
+    "filesh_cleanup_retries_total",
+    "Total number of cleanup events scheduled for retry.",
+    ["event_type", "topic"],
+)
+cleanup_dlq_events_total = Counter(
+    "filesh_cleanup_dlq_events_total",
+    "Total number of cleanup events sent to the DLQ.",
+    ["event_type", "topic"],
+)
 cleanup_consumer_lag_messages = Gauge(
     "filesh_cleanup_consumer_lag_messages",
     "Estimated cleanup consumer lag in messages.",
@@ -128,6 +138,18 @@ def observe_cleanup_event(
     }
     cleanup_events_total.labels(**labels).inc()
     cleanup_event_duration_seconds.labels(**labels).observe(duration)
+
+
+def observe_cleanup_retry(*, event_type: str, topic: str) -> None:
+    if not settings.metrics_enabled:
+        return
+    cleanup_retries_total.labels(event_type=event_type, topic=topic).inc()
+
+
+def observe_cleanup_dlq(*, event_type: str, topic: str) -> None:
+    if not settings.metrics_enabled:
+        return
+    cleanup_dlq_events_total.labels(event_type=event_type, topic=topic).inc()
 
 
 def render_metrics() -> tuple[bytes, str]:

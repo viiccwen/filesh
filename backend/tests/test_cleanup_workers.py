@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 
 from app.core.events import InMemoryEventPublisher
+from app.core.observability import render_metrics
 from app.persistence.models import File, UploadSession
 from app.workers.cleanup import (
     build_dlq_event,
@@ -174,6 +175,17 @@ def test_process_cleanup_message_schedules_retry_on_failure(object_storage) -> N
     assert publisher.events[-1].payload["delivery"]["attempt"] == 1
     assert "last_error" in publisher.events[-1].payload["delivery"]
 
+    metrics_payload, _ = render_metrics()
+    metrics_text = metrics_payload.decode()
+    assert (
+        'filesh_cleanup_events_total{event_type="unsupported.event",'
+        'outcome="retry",topic="filesh.cleanup"}'
+    ) in metrics_text
+    assert (
+        'filesh_cleanup_retries_total{event_type="unsupported.event",topic="filesh.cleanup"} 1.0'
+        in metrics_text
+    )
+
 
 def test_process_cleanup_message_sends_dlq_after_max_retries(object_storage) -> None:
     class FakeConsumer:
@@ -209,6 +221,17 @@ def test_process_cleanup_message_sends_dlq_after_max_retries(object_storage) -> 
     assert consumer.committed == 1
     assert publisher.events[-1].topic == "filesh.cleanup.dlq"
     assert "dlq_reason" in publisher.events[-1].payload["metadata"]
+
+    metrics_payload, _ = render_metrics()
+    metrics_text = metrics_payload.decode()
+    assert (
+        'filesh_cleanup_events_total{event_type="unsupported.event",'
+        'outcome="dlq",topic="filesh.cleanup.retry"}'
+    ) in metrics_text
+    assert (
+        "filesh_cleanup_dlq_events_total"
+        '{event_type="unsupported.event",topic="filesh.cleanup.retry"} 1.0' in metrics_text
+    )
 
 
 def test_retry_delay_uses_exponential_backoff() -> None:
