@@ -3,6 +3,23 @@ logging {
   format = "logfmt"
 }
 
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.containers.targets
+  labels     = {job = "docker", source = "alloy"}
+  forward_to = [loki.write.local.receiver]
+}
+
 otelcol.receiver.otlp "filesh" {
   grpc {
     endpoint = "0.0.0.0:4317"
