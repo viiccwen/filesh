@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "change-me-to-a-32-byte-minimum-secret"
@@ -105,6 +105,15 @@ class Settings(BaseSettings):
         default=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         alias="BACKEND_CORS_ORIGIN_REGEX",
     )
+
+    @field_validator("backend_cors_origin_regex", mode="before")
+    @classmethod
+    def normalize_cors_origin_regex(cls, value: str) -> str:
+        # `.env` files sometimes over-escape regex backslashes. Normalize them
+        # so localhost/loopback patterns still work when loaded from env vars.
+        if isinstance(value, str):
+            return value.replace("\\\\", "\\")
+        return value
 
     @property
     def cors_origins(self) -> list[str]:

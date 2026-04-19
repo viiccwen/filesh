@@ -32,6 +32,12 @@ def test_cors_origin_regex_defaults_to_localhost_and_loopback_ports() -> None:
     assert config.backend_cors_origin_regex == r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
 
+def test_cors_origin_regex_normalizes_double_escaped_env_value() -> None:
+    config = Settings(BACKEND_CORS_ORIGIN_REGEX=r"^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$")
+
+    assert config.backend_cors_origin_regex == r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+
 def test_password_hashing_roundtrip_and_failure() -> None:
     password_hash = hash_password("secret123")
 
