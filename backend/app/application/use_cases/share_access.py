@@ -5,7 +5,6 @@ import uuid
 from app.application.dto import (
     AuthenticatedUser,
     FileDTO,
-    FolderContentsDTO,
     FolderDTO,
     ShareAccessDTO,
     SharedFolderContentsDTO,
@@ -13,7 +12,6 @@ from app.application.dto import (
 from app.application.shared.files import delete_file, download_file_content
 from app.application.shared.folders import delete_folder
 from app.application.shared.presenters import (
-    to_folder_contents_response,
     to_share_access_response,
     to_shared_folder_contents_response,
 )
@@ -88,7 +86,7 @@ class ShareAccessUseCase:
         token: str,
         folder_id: uuid.UUID,
         current_user: AuthenticatedUser | None,
-    ) -> FolderContentsDTO:
+    ) -> SharedFolderContentsDTO:
         share_link = resolve_share_by_token(self.session, token)
         folder, folders, files = get_shared_folder_contents_for_target(
             self.session,
@@ -96,7 +94,12 @@ class ShareAccessUseCase:
             current_user,
             folder_id,
         )
-        return to_folder_contents_response(folder, folders, files)
+        return to_shared_folder_contents_response(
+            folder,
+            folders,
+            files,
+            share_link.permission_level,
+        )
 
     def create_shared_folder(
         self,

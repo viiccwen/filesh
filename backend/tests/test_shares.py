@@ -267,6 +267,34 @@ def test_folder_share_upload_permission_allows_creating_subfolder(client) -> Non
     assert [item["name"] for item in contents_response.json()["folders"]] == ["guest-child"]
 
 
+def test_nested_shared_folder_contents_preserve_permission_level(client) -> None:
+    headers = register_and_login(client, "nested-share@example.com", "nested-share-user")
+    folder_response = client.post("/api/folders", headers=headers, json={"name": "shared-root"})
+    share_response = client.post(
+        f"/api/folders/{folder_response.json()['id']}/share",
+        headers=headers,
+        json={
+            "share_mode": "GUEST",
+            "permission_level": "UPLOAD",
+            "expiry": "never",
+            "invitation_emails": [],
+        },
+    )
+    token = share_response.json()["share_url"].split("/s/")[1]
+    create_response = client.post(
+        f"/s/{token}/folders",
+        json={"name": "guest-child"},
+    )
+
+    nested_contents_response = client.get(
+        f"/s/{token}/folders/{create_response.json()['id']}/contents"
+    )
+
+    assert nested_contents_response.status_code == 200
+    assert nested_contents_response.json()["permission_level"] == "UPLOAD"
+    assert nested_contents_response.json()["folder"]["name"] == "guest-child"
+
+
 def test_folder_share_upload_permission_allows_uploading_file(client) -> None:
     headers = register_and_login(client, "upload-file-share@example.com", "upload-file-share-user")
     folder_response = client.post("/api/folders", headers=headers, json={"name": "incoming"})

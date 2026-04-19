@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { SparklesIcon } from "lucide-react";
 
+import brandMark from "@/components/image.png";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { getInitials } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -34,9 +35,7 @@ export function AppNavbar({
         )}
       >
         <Link className="flex items-center gap-3" to={brandHref}>
-          <div className="flex size-10 items-center justify-center rounded-full bg-foreground text-background">
-            <SparklesIcon />
-          </div>
+          <img alt="filesh logo" height={25} src={brandMark} width={25} />
           <div className="min-w-0">
             <p className="text-sm font-semibold tracking-[0.22em] text-foreground uppercase">
               filesh

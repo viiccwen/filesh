@@ -13,7 +13,7 @@ from app.dependencies.auth import get_optional_current_user
 from app.dependencies.use_cases import get_share_access_use_case
 from app.domain import AppError
 from app.schemas.file import FileRead
-from app.schemas.folder import FolderContentsResponse, FolderCreateRequest, FolderRead
+from app.schemas.folder import FolderCreateRequest, FolderRead
 from app.schemas.share import ShareAccessResponse, SharedFolderContentsResponse
 
 router = APIRouter()
@@ -64,13 +64,13 @@ def download_shared_file(
         raise to_http_exception(exc) from exc
 
 
-@router.get("/s/{token}/folders/{folder_id}/contents", response_model=FolderContentsResponse)
+@router.get("/s/{token}/folders/{folder_id}/contents", response_model=SharedFolderContentsResponse)
 def access_nested_shared_folder_contents(
     token: str,
     folder_id: uuid.UUID,
     current_user: AuthenticatedUser | None = optional_user_dependency,
     use_case: ShareAccessUseCase = share_access_use_case_dependency,
-) -> FolderContentsResponse:
+) -> SharedFolderContentsResponse:
     try:
         return use_case.nested_folder_contents(token, folder_id, current_user)
     except AppError as exc:
