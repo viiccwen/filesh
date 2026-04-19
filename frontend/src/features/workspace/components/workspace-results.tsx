@@ -187,6 +187,32 @@ export function WorkspaceResults({
   return (
     <div
       className="relative overflow-hidden rounded-[1.75rem] border border-border/70 bg-background/70 shadow-lg shadow-black/5 backdrop-blur"
+      onPointerDown={(event) => {
+        if (event.button !== 0) {
+          return;
+        }
+
+        const target = event.target as HTMLElement;
+        if (target.closest("[data-slot='table-row']")) {
+          return;
+        }
+
+        const containerRect = containerRef.current?.getBoundingClientRect();
+        if (!containerRect) {
+          return;
+        }
+
+        const originX = event.clientX - containerRect.left;
+        const originY = event.clientY - containerRect.top;
+
+        setSelectionBox({
+          active: false,
+          currentX: originX,
+          currentY: originY,
+          originX,
+          originY,
+        });
+      }}
       ref={containerRef}
     >
       {selectionBox?.active ? (
@@ -266,39 +292,17 @@ export function WorkspaceResults({
                     : undefined
                 }
                 onPointerDown={(event) => {
-                  if (event.button !== 0) {
-                    return;
-                  }
-
                   const resourceId =
                     item.item_type === "FOLDER" ? item.folder.id : item.file.id;
 
                   if (event.metaKey || event.ctrlKey) {
+                    event.preventDefault();
                     setSelectedResourceIds((current) =>
                       current.includes(resourceId)
                         ? current.filter((id) => id !== resourceId)
                         : [...current, resourceId],
                     );
-                    setSelectionBox(null);
-                    return;
                   }
-
-                  const containerRect =
-                    containerRef.current?.getBoundingClientRect();
-                  if (!containerRect) {
-                    return;
-                  }
-
-                  const originX = event.clientX - containerRect.left;
-                  const originY = event.clientY - containerRect.top;
-
-                  setSelectionBox({
-                    active: false,
-                    currentX: originX,
-                    currentY: originY,
-                    originX,
-                    originY,
-                  });
                 }}
                 onRename={() =>
                   onEditResource({
