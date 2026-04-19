@@ -49,6 +49,20 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return children;
 }
 
+function GuestRoute({ children }: { children: React.ReactNode }) {
+  const status = useAuthStore((state) => state.status);
+
+  if (status === "booting") {
+    return null;
+  }
+
+  if (status === "authenticated") {
+    return <Navigate replace to="/app" />;
+  }
+
+  return children;
+}
+
 function PageFallback() {
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
@@ -67,8 +81,22 @@ function withSuspense(node: React.ReactNode) {
 
 export const router = createBrowserRouter([
   { path: "/", element: withSuspense(<LandingPage />) },
-  { path: "/login", element: withSuspense(<LoginPage />) },
-  { path: "/register", element: withSuspense(<RegisterPage />) },
+  {
+    path: "/login",
+    element: withSuspense(
+      <GuestRoute>
+        <LoginPage />
+      </GuestRoute>,
+    ),
+  },
+  {
+    path: "/register",
+    element: withSuspense(
+      <GuestRoute>
+        <RegisterPage />
+      </GuestRoute>,
+    ),
+  },
   {
     path: "/app",
     element: withSuspense(
