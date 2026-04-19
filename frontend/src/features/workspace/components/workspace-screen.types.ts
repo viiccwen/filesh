@@ -79,7 +79,6 @@ export type WorkspaceRowProps = {
   onOpenFolder: () => void;
   onPointerDown: (event: React.PointerEvent<HTMLTableRowElement>) => void;
   onRename: () => void;
-  rowRef: (node: HTMLTableRowElement | null) => void;
   setDropTargetId: (folderId: string | null) => void;
 };
 
