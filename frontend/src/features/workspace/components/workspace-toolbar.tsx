@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { SearchIcon } from "lucide-react";
+import { SearchIcon, TrashIcon, XIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -17,6 +17,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -44,9 +45,12 @@ import { PAGE_SIZE_OPTIONS } from "./workspace-screen.utils";
 
 export function WorkspaceToolbar({
   breadcrumbFolders,
+  onClearSelection,
+  onDeleteSelection,
   onOpenFolder,
   pageSize,
   searchQuery,
+  selectedCount,
   setPageSize,
   setSearchQuery,
   setSortDirection,
@@ -98,6 +102,23 @@ export function WorkspaceToolbar({
           </div>
 
           <div className="flex items-center gap-2">
+            {selectedCount > 0 ? (
+              <>
+                <Badge variant="secondary">{selectedCount} selected</Badge>
+                <Button
+                  onClick={onDeleteSelection}
+                  size="sm"
+                  variant="destructive"
+                >
+                  <TrashIcon data-icon="inline-start" />
+                  Delete selected
+                </Button>
+                <Button onClick={onClearSelection} size="sm" variant="outline">
+                  <XIcon data-icon="inline-start" />
+                  Clear
+                </Button>
+              </>
+            ) : null}
             {share ? (
               <Badge variant="outline">{share.permission_level}</Badge>
             ) : null}

@@ -56,6 +56,8 @@ export function WorkspaceResults({
   onOpenFolder,
   resourceResults,
   searchQuery,
+  selectedResourceIds,
+  setSelectedResourceIds,
   workspacePending,
 }: WorkspaceResultsProps) {
   const [draggedResource, setDraggedResource] = useState<ActionResource | null>(
@@ -63,7 +65,6 @@ export function WorkspaceResults({
   );
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [movePendingId, setMovePendingId] = useState<string | null>(null);
-  const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
   const [selectionBox, setSelectionBox] = useState<{
     active: boolean;
     currentX: number;
@@ -184,25 +185,18 @@ export function WorkspaceResults({
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {selectedResources.length > 0 ? (
-        <div className="rounded-2xl border border-primary/20 bg-primary/7 px-4 py-3 text-sm text-foreground">
-          {selectedResources.length} items selected. Right click a selected row
-          to delete them together.
-        </div>
+    <div
+      className="relative overflow-hidden rounded-[1.75rem] border border-border/70 bg-background/70 shadow-lg shadow-black/5 backdrop-blur"
+      ref={containerRef}
+    >
+      {selectionBox?.active ? (
+        <div
+          className="pointer-events-none absolute z-10 rounded-md border border-primary/50 bg-primary/12"
+          style={getSelectionBoxStyle(selectionBox)}
+        />
       ) : null}
 
-      <div
-        className="relative overflow-hidden rounded-[1.75rem] border border-border/70 bg-background/70 shadow-lg shadow-black/5 backdrop-blur"
-        ref={containerRef}
-      >
-        {selectionBox?.active ? (
-          <div
-            className="pointer-events-none absolute z-10 rounded-md border border-primary/50 bg-primary/12"
-            style={getSelectionBoxStyle(selectionBox)}
-          />
-        ) : null}
-
+      <div className="relative overflow-hidden rounded-[1.75rem] border border-border/70 bg-background/70 shadow-lg shadow-black/5 backdrop-blur">
         <Table>
           <TableHeader>
             <TableRow>

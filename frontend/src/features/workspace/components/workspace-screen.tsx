@@ -92,6 +92,9 @@ export function WorkspaceScreen() {
   const [deleteDialogResources, setDeleteDialogResources] = useState<
     ActionResource[]
   >([]);
+  const [selectedResources, setSelectedResources] = useState<ActionResource[]>(
+    [],
+  );
   const [actionPending, setActionPending] = useState(false);
   const [resourceName, setResourceName] = useState("");
   const [moveTargetId, setMoveTargetId] = useState("");
@@ -136,6 +139,19 @@ export function WorkspaceScreen() {
     sortDirection,
     sortKey,
   ]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setSelectedResources([]);
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
   const currentFolderId = contents?.folder.id ?? "";
 
   const breadcrumbFolders = useMemo(() => {
@@ -570,6 +586,7 @@ export function WorkspaceScreen() {
       );
 
       setDeleteDialogResources([]);
+      setSelectedResources([]);
 
       const deletedCurrentFolder = resources.find(
         (resource) =>
@@ -629,6 +646,14 @@ export function WorkspaceScreen() {
     }
   }
 
+  function handleDeleteSelection() {
+    if (selectedResources.length === 0) {
+      return;
+    }
+
+    setDeleteDialogResources(selectedResources);
+  }
+
   return (
     <>
       <WorkspaceActionDialog
@@ -676,9 +701,12 @@ export function WorkspaceScreen() {
             <main className="flex min-w-0 flex-col gap-6">
               <WorkspaceToolbar
                 breadcrumbFolders={breadcrumbFolders}
+                onClearSelection={() => setSelectedResources([])}
+                onDeleteSelection={handleDeleteSelection}
                 onOpenFolder={openFolder}
                 pageSize={pageSize}
                 searchQuery={searchQuery}
+                selectedCount={selectedResources.length}
                 setPageSize={setPageSize}
                 setSearchQuery={setSearchQuery}
                 setSortDirection={setSortDirection}
@@ -729,6 +757,48 @@ export function WorkspaceScreen() {
                 onOpenFolder={openFolder}
                 resourceResults={resourceResults}
                 searchQuery={searchQuery}
+                selectedResourceIds={selectedResources.map(
+                  (resource) => resource.id,
+                )}
+                setSelectedResourceIds={(value) =>
+                  setSelectedResources((current) => {
+                    const currentMap = new Map(
+                      current.map((resource) => [resource.id, resource]),
+                    );
+                    const nextIds =
+                      typeof value === "function"
+                        ? value(current.map((resource) => resource.id))
+                        : value;
+
+                    const nextResources: ActionResource[] = [];
+
+                    for (const item of resourceResults?.items ?? []) {
+                      const resource =
+                        item.item_type === "FOLDER"
+                          ? {
+                              kind: "folder" as const,
+                              id: item.folder.id,
+                              name: item.folder.name,
+                              parentId: item.folder.parent_id,
+                              pathCache: item.folder.path_cache,
+                            }
+                          : {
+                              kind: "file" as const,
+                              id: item.file.id,
+                              name: item.file.stored_filename,
+                              parentId: currentFolderId,
+                            };
+
+                      if (nextIds.includes(resource.id)) {
+                        nextResources.push(
+                          currentMap.get(resource.id) ?? resource,
+                        );
+                      }
+                    }
+
+                    return nextResources;
+                  })
+                }
                 workspacePending={workspacePending}
               />
 

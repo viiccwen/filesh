@@ -32,9 +32,12 @@ export type EditDialogState =
 
 export type ToolbarProps = {
   breadcrumbFolders: Folder[];
+  onClearSelection: () => void;
+  onDeleteSelection: () => void;
   onOpenFolder: (folderId: string) => Promise<void>;
   pageSize: number;
   searchQuery: string;
+  selectedCount: number;
   setPageSize: (value: number) => void;
   setSearchQuery: (value: string) => void;
   setSortDirection: (value: "asc" | "desc") => void;
@@ -57,6 +60,8 @@ export type WorkspaceResultsProps = {
   onOpenFolder: (folderId: string) => Promise<void>;
   resourceResults: ResourceSearchResponse | null;
   searchQuery: string;
+  selectedResourceIds: string[];
+  setSelectedResourceIds: React.Dispatch<React.SetStateAction<string[]>>;
   workspacePending: boolean;
 };
 
