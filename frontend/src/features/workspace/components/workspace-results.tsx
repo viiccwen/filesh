@@ -270,6 +270,19 @@ export function WorkspaceResults({
                     return;
                   }
 
+                  const resourceId =
+                    item.item_type === "FOLDER" ? item.folder.id : item.file.id;
+
+                  if (event.metaKey || event.ctrlKey) {
+                    setSelectedResourceIds((current) =>
+                      current.includes(resourceId)
+                        ? current.filter((id) => id !== resourceId)
+                        : [...current, resourceId],
+                    );
+                    setSelectionBox(null);
+                    return;
+                  }
+
                   const containerRect =
                     containerRef.current?.getBoundingClientRect();
                   if (!containerRect) {
@@ -446,7 +459,15 @@ function WorkspaceRow({
             onDropResource(folder);
           }}
           onPointerDown={onPointerDown}
-          onClick={isFolder ? onOpenFolder : undefined}
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey) {
+              return;
+            }
+
+            if (isFolder) {
+              onOpenFolder();
+            }
+          }}
           ref={rowRef}
         >
           <TableCell className="font-medium">
