@@ -7,7 +7,7 @@ import {
   SearchIcon,
   TrashIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -49,7 +49,7 @@ import {
 export function WorkspaceResults({
   contents,
   currentFolderId,
-  onDeleteResource,
+  onDeleteResources,
   onDownloadFile,
   onEditResource,
   onMoveResource,
@@ -63,6 +63,93 @@ export function WorkspaceResults({
   );
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [movePendingId, setMovePendingId] = useState<string | null>(null);
+  const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
+  const [selectionBox, setSelectionBox] = useState<{
+    active: boolean;
+    currentX: number;
+    currentY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
+  const marqueeSelectionRef = useRef(false);
+
+  const resources = useMemo(
+    () =>
+      (resourceResults?.items ?? []).map((item) =>
+        item.item_type === "FOLDER"
+          ? toFolderActionResource(item.folder)
+          : toFileActionResource({
+              file: item.file,
+              parentId: currentFolderId,
+            }),
+      ),
+    [currentFolderId, resourceResults?.items],
+  );
+
+  const resourceMap = useMemo(
+    () => new Map(resources.map((resource) => [resource.id, resource])),
+    [resources],
+  );
+
+  const selectedResources = useMemo(
+    () =>
+      selectedResourceIds
+        .map((resourceId) => resourceMap.get(resourceId))
+        .filter(
+          (resource): resource is ActionResource => resource !== undefined,
+        ),
+    [resourceMap, selectedResourceIds],
+  );
+
+  useEffect(() => {
+    setSelectedResourceIds([]);
+  }, [resourceResults?.items]);
+
+  useEffect(() => {
+    if (!selectionBox) {
+      return;
+    }
+
+    const startBox = selectionBox;
+
+    function handlePointerMove(event: PointerEvent) {
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      if (!containerRect) {
+        return;
+      }
+
+      const nextBox = updateSelectionBox(
+        startBox,
+        event.clientX - containerRect.left,
+        event.clientY - containerRect.top,
+      );
+      setSelectionBox(nextBox);
+
+      if (!nextBox.active) {
+        return;
+      }
+
+      marqueeSelectionRef.current = true;
+      setSelectedResourceIds(getSelectedResourceIds(nextBox));
+    }
+
+    function handlePointerUp() {
+      setSelectionBox(null);
+      window.setTimeout(() => {
+        marqueeSelectionRef.current = false;
+      }, 0);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [selectionBox]);
 
   if (workspacePending && !contents) {
     return (
@@ -97,79 +184,143 @@ export function WorkspaceResults({
   }
 
   return (
-    <div className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-background/70 shadow-lg shadow-black/5 backdrop-blur">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Kind</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Updated</TableHead>
-            <TableHead>Size</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {(resourceResults?.items ?? []).map((item) => (
-            <WorkspaceRow
-              draggedResource={draggedResource}
-              dropTargetId={dropTargetId}
-              isMovePending={movePendingId !== null}
-              item={item}
-              key={item.item_type === "FOLDER" ? item.folder.id : item.file.id}
-              onDelete={() =>
-                onDeleteResource(
-                  item.item_type === "FOLDER"
-                    ? toFolderActionResource(item.folder)
-                    : toFileActionResource({
-                        file: item.file,
-                        parentId: currentFolderId,
-                      }),
-                )
-              }
-              onDownload={() =>
-                item.item_type === "FILE"
-                  ? void onDownloadFile(item.file.id, item.file.stored_filename)
-                  : undefined
-              }
-              onDragEnd={() => {
-                setDraggedResource(null);
-                setDropTargetId(null);
-              }}
-              onDragStart={() =>
-                setDraggedResource(
-                  item.item_type === "FOLDER"
-                    ? toFolderActionResource(item.folder)
-                    : toFileActionResource({
-                        file: item.file,
-                        parentId: currentFolderId,
-                      }),
-                )
-              }
-              onDropResource={(targetFolder) => {
-                void handleDropResource(targetFolder);
-              }}
-              onOpenFolder={() =>
-                item.item_type === "FOLDER"
-                  ? void onOpenFolder(item.folder.id)
-                  : undefined
-              }
-              onRename={() =>
-                onEditResource({
-                  mode: "rename",
-                  resource:
+    <div className="flex flex-col gap-3">
+      {selectedResources.length > 0 ? (
+        <div className="rounded-2xl border border-primary/20 bg-primary/7 px-4 py-3 text-sm text-foreground">
+          {selectedResources.length} items selected. Right click a selected row
+          to delete them together.
+        </div>
+      ) : null}
+
+      <div
+        className="relative overflow-hidden rounded-[1.75rem] border border-border/70 bg-background/70 shadow-lg shadow-black/5 backdrop-blur"
+        ref={containerRef}
+      >
+        {selectionBox?.active ? (
+          <div
+            className="pointer-events-none absolute z-10 rounded-md border border-primary/50 bg-primary/12"
+            style={getSelectionBoxStyle(selectionBox)}
+          />
+        ) : null}
+
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Kind</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Updated</TableHead>
+              <TableHead>Size</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(resourceResults?.items ?? []).map((item) => (
+              <WorkspaceRow
+                draggedResource={draggedResource}
+                dropTargetId={dropTargetId}
+                isMovePending={movePendingId !== null}
+                isSelected={selectedResourceIds.includes(
+                  item.item_type === "FOLDER" ? item.folder.id : item.file.id,
+                )}
+                item={item}
+                key={
+                  item.item_type === "FOLDER" ? item.folder.id : item.file.id
+                }
+                onDelete={() => {
+                  const resource =
+                    item.item_type === "FOLDER"
+                      ? toFolderActionResource(item.folder)
+                      : toFileActionResource({
+                          file: item.file,
+                          parentId: currentFolderId,
+                        });
+                  const resourcesToDelete =
+                    selectedResourceIds.includes(resource.id) &&
+                    selectedResources.length > 1
+                      ? selectedResources
+                      : [resource];
+                  onDeleteResources(resourcesToDelete);
+                }}
+                onDownload={() =>
+                  item.item_type === "FILE"
+                    ? void onDownloadFile(
+                        item.file.id,
+                        item.file.stored_filename,
+                      )
+                    : undefined
+                }
+                onDragEnd={() => {
+                  setDraggedResource(null);
+                  setDropTargetId(null);
+                }}
+                onDragStart={() =>
+                  setDraggedResource(
                     item.item_type === "FOLDER"
                       ? toFolderActionResource(item.folder)
                       : toFileActionResource({
                           file: item.file,
                           parentId: currentFolderId,
                         }),
-                })
-              }
-              setDropTargetId={setDropTargetId}
-            />
-          ))}
-        </TableBody>
-      </Table>
+                  )
+                }
+                onDropResource={(targetFolder) => {
+                  void handleDropResource(targetFolder);
+                }}
+                onOpenFolder={() =>
+                  item.item_type === "FOLDER" && !marqueeSelectionRef.current
+                    ? void onOpenFolder(item.folder.id)
+                    : undefined
+                }
+                onPointerDown={(event) => {
+                  if (event.button !== 0) {
+                    return;
+                  }
+
+                  const containerRect =
+                    containerRef.current?.getBoundingClientRect();
+                  if (!containerRect) {
+                    return;
+                  }
+
+                  const originX = event.clientX - containerRect.left;
+                  const originY = event.clientY - containerRect.top;
+
+                  setSelectionBox({
+                    active: false,
+                    currentX: originX,
+                    currentY: originY,
+                    originX,
+                    originY,
+                  });
+                }}
+                onRename={() =>
+                  onEditResource({
+                    mode: "rename",
+                    resource:
+                      item.item_type === "FOLDER"
+                        ? toFolderActionResource(item.folder)
+                        : toFileActionResource({
+                            file: item.file,
+                            parentId: currentFolderId,
+                          }),
+                  })
+                }
+                rowRef={(node) => {
+                  const resourceId =
+                    item.item_type === "FOLDER" ? item.folder.id : item.file.id;
+
+                  if (node) {
+                    rowRefs.current.set(resourceId, node);
+                  } else {
+                    rowRefs.current.delete(resourceId);
+                  }
+                }}
+                setDropTargetId={setDropTargetId}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 
@@ -193,12 +344,39 @@ export function WorkspaceResults({
       setMovePendingId(null);
     }
   }
+
+  function getSelectedResourceIds(box: NonNullable<typeof selectionBox>) {
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect) {
+      return [];
+    }
+
+    const boxRect = normalizeSelectionBox(box);
+    const nextSelectedIds: string[] = [];
+
+    for (const [resourceId, rowNode] of rowRefs.current.entries()) {
+      const rowRect = rowNode.getBoundingClientRect();
+      const relativeRect = {
+        bottom: rowRect.bottom - containerRect.top,
+        left: rowRect.left - containerRect.left,
+        right: rowRect.right - containerRect.left,
+        top: rowRect.top - containerRect.top,
+      };
+
+      if (rectanglesIntersect(boxRect, relativeRect)) {
+        nextSelectedIds.push(resourceId);
+      }
+    }
+
+    return nextSelectedIds;
+  }
 }
 
 function WorkspaceRow({
   draggedResource,
   dropTargetId,
   isMovePending,
+  isSelected,
   item,
   onDelete,
   onDownload,
@@ -206,7 +384,9 @@ function WorkspaceRow({
   onDragStart,
   onDropResource,
   onOpenFolder,
+  onPointerDown,
   onRename,
+  rowRef,
   setDropTargetId,
 }: WorkspaceRowProps) {
   const isFolder = item.item_type === "FOLDER";
@@ -228,6 +408,7 @@ function WorkspaceRow({
             isFolder
               ? "cursor-pointer transition-colors hover:bg-muted/20"
               : "cursor-default",
+            isSelected && "bg-primary/10 ring-1 ring-primary/20",
             canAcceptDrop &&
               "data-[drop-target=true]:bg-primary/8 data-[drop-target=true]:ring-1 data-[drop-target=true]:ring-primary/20",
             isMovePending && "opacity-80",
@@ -235,6 +416,7 @@ function WorkspaceRow({
           data-drop-target={
             canAcceptDrop && folder?.id === dropTargetId ? true : undefined
           }
+          data-state={isSelected ? "selected" : undefined}
           draggable
           onDragEnd={onDragEnd}
           onDragEnter={() => {
@@ -269,7 +451,9 @@ function WorkspaceRow({
             event.preventDefault();
             onDropResource(folder);
           }}
+          onPointerDown={onPointerDown}
           onClick={isFolder ? onOpenFolder : undefined}
+          ref={rowRef}
         >
           <TableCell className="font-medium">
             {isFolder ? (
@@ -311,6 +495,70 @@ function WorkspaceRow({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+function updateSelectionBox(
+  box: {
+    active: boolean;
+    currentX: number;
+    currentY: number;
+    originX: number;
+    originY: number;
+  },
+  currentX: number,
+  currentY: number,
+) {
+  return {
+    ...box,
+    active:
+      box.active ||
+      Math.abs(box.originX - currentX) > 4 ||
+      Math.abs(box.originY - currentY) > 4,
+    currentX,
+    currentY,
+  };
+}
+
+function normalizeSelectionBox(box: {
+  currentX: number;
+  currentY: number;
+  originX: number;
+  originY: number;
+}) {
+  return {
+    bottom: Math.max(box.originY, box.currentY),
+    left: Math.min(box.originX, box.currentX),
+    right: Math.max(box.originX, box.currentX),
+    top: Math.min(box.originY, box.currentY),
+  };
+}
+
+function getSelectionBoxStyle(box: {
+  currentX: number;
+  currentY: number;
+  originX: number;
+  originY: number;
+}) {
+  const normalized = normalizeSelectionBox(box);
+
+  return {
+    height: `${normalized.bottom - normalized.top}px`,
+    left: `${normalized.left}px`,
+    top: `${normalized.top}px`,
+    width: `${normalized.right - normalized.left}px`,
+  };
+}
+
+function rectanglesIntersect(
+  left: { bottom: number; left: number; right: number; top: number },
+  right: { bottom: number; left: number; right: number; top: number },
+) {
+  return !(
+    left.right < right.left ||
+    left.left > right.right ||
+    left.bottom < right.top ||
+    left.top > right.bottom
   );
 }
 

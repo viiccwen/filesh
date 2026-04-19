@@ -106,8 +106,9 @@ export function ShareAccessPage() {
   const [actionPending, setActionPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editDialogState, setEditDialogState] = useState<EditDialogState>(null);
-  const [deleteDialogResource, setDeleteDialogResource] =
-    useState<ActionResource | null>(null);
+  const [deleteDialogResources, setDeleteDialogResources] = useState<
+    ActionResource[]
+  >([]);
   const [resourceName, setResourceName] = useState("");
 
   useEffect(() => {
@@ -196,9 +197,9 @@ export function ShareAccessPage() {
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
       <DeleteResourceDialog
         actionPending={actionPending}
-        deleteDialogResource={deleteDialogResource}
+        deleteDialogResources={deleteDialogResources}
         onConfirm={() => void handleDeleteResource()}
-        onOpenChange={setDeleteDialogResource}
+        onOpenChange={setDeleteDialogResources}
       />
 
       <WorkspaceActionDialog
@@ -479,7 +480,7 @@ export function ShareAccessPage() {
                                 <ContextMenuContent>
                                   <ContextMenuItem
                                     onClick={() =>
-                                      setDeleteDialogResource(resource)
+                                      setDeleteDialogResources([resource])
                                     }
                                     variant="destructive"
                                   >
@@ -605,7 +606,7 @@ export function ShareAccessPage() {
   }
 
   async function handleDeleteResource() {
-    const resource = deleteDialogResource;
+    const resource = deleteDialogResources[0];
     if (!resource || !folderContents) {
       return;
     }
@@ -621,7 +622,7 @@ export function ShareAccessPage() {
         toast.success("File deleted");
       }
 
-      setDeleteDialogResource(null);
+      setDeleteDialogResources([]);
       await refreshCurrentFolder();
     } catch (error) {
       handleShareError(error);

@@ -169,26 +169,33 @@ export function WorkspaceActionDialog({
 
 export function DeleteResourceDialog({
   actionPending,
-  deleteDialogResource,
+  deleteDialogResources,
   onConfirm,
   onOpenChange,
 }: DeleteResourceDialogProps) {
+  const isBatchDelete = deleteDialogResources.length > 1;
+  const firstResource = deleteDialogResources[0] ?? null;
+
   return (
     <AlertDialog
       onOpenChange={(open) => {
         if (!open && !actionPending) {
-          onOpenChange(null);
+          onOpenChange([]);
         }
       }}
-      open={deleteDialogResource !== null}
+      open={deleteDialogResources.length > 0}
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete resource</AlertDialogTitle>
+          <AlertDialogTitle>
+            {isBatchDelete ? "Delete selected resources" : "Delete resource"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {deleteDialogResource
-              ? `Delete ${deleteDialogResource.name}? This action cannot be undone.`
-              : "This action cannot be undone."}
+            {isBatchDelete
+              ? `Delete ${deleteDialogResources.length} selected resources? This action cannot be undone.`
+              : firstResource
+                ? `Delete ${firstResource.name}? This action cannot be undone.`
+                : "This action cannot be undone."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

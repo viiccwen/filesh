@@ -47,7 +47,7 @@ export type ToolbarProps = {
 export type WorkspaceResultsProps = {
   contents: FolderContents | null;
   currentFolderId: string;
-  onDeleteResource: (resource: ActionResource) => void;
+  onDeleteResources: (resources: ActionResource[]) => void;
   onDownloadFile: (fileId: string, filename: string) => Promise<void>;
   onEditResource: (state: EditDialogState) => void;
   onMoveResource: (
@@ -64,6 +64,7 @@ export type WorkspaceRowProps = {
   draggedResource: ActionResource | null;
   dropTargetId: string | null;
   isMovePending: boolean;
+  isSelected: boolean;
   item: ResourceSearchItem;
   onDelete: () => void;
   onDownload: () => void;
@@ -71,7 +72,9 @@ export type WorkspaceRowProps = {
   onDragEnd: () => void;
   onDropResource: (targetFolder: Folder) => void;
   onOpenFolder: () => void;
+  onPointerDown: (event: React.PointerEvent<HTMLTableRowElement>) => void;
   onRename: () => void;
+  rowRef: (node: HTMLTableRowElement | null) => void;
   setDropTargetId: (folderId: string | null) => void;
 };
 
@@ -89,9 +92,9 @@ export type WorkspaceActionDialogProps = {
 
 export type DeleteResourceDialogProps = {
   actionPending: boolean;
-  deleteDialogResource: ActionResource | null;
+  deleteDialogResources: ActionResource[];
   onConfirm: () => void;
-  onOpenChange: (resource: ActionResource | null) => void;
+  onOpenChange: (resources: ActionResource[]) => void;
 };
 
 export type WorkspaceNavbarProps = {

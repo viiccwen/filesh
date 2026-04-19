@@ -89,8 +89,9 @@ export function WorkspaceScreen() {
   );
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [editDialogState, setEditDialogState] = useState<EditDialogState>(null);
-  const [deleteDialogResource, setDeleteDialogResource] =
-    useState<ActionResource | null>(null);
+  const [deleteDialogResources, setDeleteDialogResources] = useState<
+    ActionResource[]
+  >([]);
   const [actionPending, setActionPending] = useState(false);
   const [resourceName, setResourceName] = useState("");
   const [moveTargetId, setMoveTargetId] = useState("");
@@ -552,32 +553,47 @@ export function WorkspaceScreen() {
   }
 
   async function handleDeleteResource() {
-    const resource = deleteDialogResource;
-    if (!resource) {
+    if (deleteDialogResources.length === 0) {
       return;
     }
 
     setActionPending(true);
 
     try {
-      if (resource.kind === "folder") {
-        await deleteFolder(authToken, resource.id);
-        toast.success("Folder deleted");
-      } else {
-        await deleteFile(authToken, resource.id);
-        toast.success("File deleted");
-      }
+      const resources = [...deleteDialogResources];
+      await Promise.all(
+        resources.map((resource) =>
+          resource.kind === "folder"
+            ? deleteFolder(authToken, resource.id)
+            : deleteFile(authToken, resource.id),
+        ),
+      );
 
-      setDeleteDialogResource(null);
+      setDeleteDialogResources([]);
+
+      const deletedCurrentFolder = resources.find(
+        (resource) =>
+          resource.kind === "folder" &&
+          contents?.folder.id === resource.id &&
+          resource.parentId,
+      );
 
       if (
-        resource.kind === "folder" &&
-        contents?.folder.id === resource.id &&
-        resource.parentId
+        deletedCurrentFolder &&
+        deletedCurrentFolder.kind === "folder" &&
+        deletedCurrentFolder.parentId
       ) {
-        await loadWorkspace(authToken, resource.parentId);
+        await loadWorkspace(authToken, deletedCurrentFolder.parentId);
       } else {
         await loadWorkspace(authToken, contents?.folder.id);
+      }
+
+      if (resources.length === 1) {
+        toast.success(
+          resources[0]?.kind === "folder" ? "Folder deleted" : "File deleted",
+        );
+      } else {
+        toast.success(`${resources.length} resources deleted`);
       }
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -629,9 +645,9 @@ export function WorkspaceScreen() {
 
       <DeleteResourceDialog
         actionPending={actionPending}
-        deleteDialogResource={deleteDialogResource}
+        deleteDialogResources={deleteDialogResources}
         onConfirm={() => void handleDeleteResource()}
-        onOpenChange={setDeleteDialogResource}
+        onOpenChange={setDeleteDialogResources}
       />
 
       <ShareManagementSheet
@@ -706,7 +722,7 @@ export function WorkspaceScreen() {
               <WorkspaceResults
                 contents={contents}
                 currentFolderId={currentFolderId}
-                onDeleteResource={setDeleteDialogResource}
+                onDeleteResources={setDeleteDialogResources}
                 onDownloadFile={handleDownload}
                 onEditResource={setEditDialogState}
                 onMoveResource={handleMoveResource}
