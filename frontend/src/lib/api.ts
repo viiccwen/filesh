@@ -212,7 +212,7 @@ export async function uploadFile(
   accessToken: string,
   folderId: string,
   file: File,
-): Promise<void> {
+): Promise<FileRead> {
   const initResponse = await request<{ session_id: string }>(
     "/api/files/upload/init",
     {
@@ -237,13 +237,14 @@ export async function uploadFile(
     responseType: "void",
   });
 
-  await request("/api/files/upload/finalize", {
+  return request<FileRead>("/api/files/upload/finalize", {
     method: "POST",
     accessToken,
     body: JSON.stringify({
       upload_session_id: initResponse.session_id,
       size_bytes: file.size,
     }),
+    parse: (value) => fileReadSchema.parse(value),
   });
 }
 

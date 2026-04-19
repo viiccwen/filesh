@@ -57,6 +57,14 @@ import {
   uploadFile,
 } from "@/lib/api";
 
+type UploadProgress = {
+  active: boolean;
+  completed: number;
+  failed: number;
+  succeeded: number;
+  total: number;
+};
+
 export function WorkspaceScreen() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const user = useAuthStore((state) => state.user);
@@ -75,6 +83,10 @@ export function WorkspaceScreen() {
   const [resourcePending, setResourcePending] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [sharePending, setSharePending] = useState(false);
+  const [uploadPending, setUploadPending] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(
+    null,
+  );
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [editDialogState, setEditDialogState] = useState<EditDialogState>(null);
   const [deleteDialogResource, setDeleteDialogResource] =
@@ -299,18 +311,94 @@ export function WorkspaceScreen() {
   }
 
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file || !contents) {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0 || !contents || uploadPending) {
       return;
     }
 
+    const targetFolderId = contents.folder.id;
+    setUploadPending(true);
+    setUploadProgress({
+      active: true,
+      completed: 0,
+      failed: 0,
+      succeeded: 0,
+      total: files.length,
+    });
+
     try {
-      await uploadFile(authToken, contents.folder.id, file);
-      await loadWorkspace(authToken, contents.folder.id);
-      toast.success(`${file.name} uploaded`);
+      const settledUploads = await Promise.all(
+        files.map(async (file) => {
+          try {
+            const uploadedFile = await uploadFile(
+              authToken,
+              targetFolderId,
+              file,
+            );
+
+            setUploadProgress((current) =>
+              current
+                ? {
+                    ...current,
+                    completed: current.completed + 1,
+                    succeeded: current.succeeded + 1,
+                  }
+                : current,
+            );
+
+            if (uploadedFile.stored_filename === file.name) {
+              toast.success(`${file.name} uploaded`);
+            } else {
+              toast.success(
+                `${file.name} uploaded as ${uploadedFile.stored_filename}`,
+              );
+            }
+
+            return { ok: true } as const;
+          } catch (error) {
+            setUploadProgress((current) =>
+              current
+                ? {
+                    ...current,
+                    completed: current.completed + 1,
+                    failed: current.failed + 1,
+                  }
+                : current,
+            );
+            toast.error(`${file.name}: ${getErrorMessage(error)}`);
+            return { ok: false } as const;
+          }
+        }),
+      );
+
+      const succeeded = settledUploads.filter((result) => result.ok).length;
+      const failed = settledUploads.length - succeeded;
+
+      if (succeeded > 0) {
+        await loadWorkspace(authToken, targetFolderId);
+      }
+
+      if (files.length > 1) {
+        if (failed === 0) {
+          toast.success(`${succeeded} files uploaded`);
+        } else if (succeeded === 0) {
+          toast.error(`All ${failed} uploads failed`);
+        } else {
+          toast.success(`${succeeded} files uploaded, ${failed} failed`);
+        }
+      }
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
+      setUploadProgress((current) =>
+        current
+          ? {
+              ...current,
+              active: false,
+            }
+          : current,
+      );
+      setUploadPending(false);
       event.target.value = "";
     }
   }
@@ -393,6 +481,10 @@ export function WorkspaceScreen() {
   }
 
   function openNativeFilePicker() {
+    if (uploadPending) {
+      return;
+    }
+
     uploadInputRef.current?.click();
   }
 
@@ -556,6 +648,7 @@ export function WorkspaceScreen() {
       <input
         className="hidden"
         onChange={(event) => void handleUpload(event)}
+        multiple
         ref={uploadInputRef}
         type="file"
       />
@@ -584,6 +677,30 @@ export function WorkspaceScreen() {
                 <Alert variant="destructive">
                   <AlertTitle>Workspace load failed</AlertTitle>
                   <AlertDescription>{workspaceError}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {uploadProgress ? (
+                <Alert
+                  variant={
+                    uploadProgress.active || uploadProgress.failed === 0
+                      ? "default"
+                      : "destructive"
+                  }
+                >
+                  <AlertTitle>
+                    {uploadProgress.active
+                      ? "Uploads in progress"
+                      : uploadProgress.failed > 0
+                        ? "Upload finished with errors"
+                        : "Upload completed"}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {uploadProgress.total} total,{" "}
+                    {uploadProgress.total - uploadProgress.completed} remaining,{" "}
+                    {uploadProgress.succeeded} succeeded,{" "}
+                    {uploadProgress.failed} failed
+                  </AlertDescription>
                 </Alert>
               ) : null}
 
@@ -627,9 +744,12 @@ export function WorkspaceScreen() {
               <Link2Icon />
               Manage current folder share
             </ContextMenuItem>
-            <ContextMenuItem onClick={openNativeFilePicker}>
+            <ContextMenuItem
+              disabled={uploadPending}
+              onClick={openNativeFilePicker}
+            >
               <UploadIcon />
-              Upload a file
+              {uploadPending ? "Uploading files..." : "Upload files"}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
