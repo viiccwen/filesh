@@ -2,30 +2,18 @@ import {
   ArrowDownToLineIcon,
   FileTextIcon,
   FolderIcon,
+  FolderInputIcon,
   Link2Icon,
   Loader2Icon,
   LogOutIcon,
+  TrashIcon,
+  UploadIcon,
 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { AppNavbar, AppNavbarUser } from "@/components/app-navbar";
-import {
-  ApiError,
-  downloadSharedFile,
-  downloadSharedFolderFile,
-  getShareAccess,
-  getSharedFolderContents,
-} from "@/lib/api";
-import { formatBytes, formatDate } from "@/lib/format";
-import { useAuthStore } from "@/features/auth/store";
-import type {
-  FileSummary,
-  Folder,
-  ShareAccessResponse,
-  SharedFolderContentsResponse,
-} from "@/features/workspace/schemas";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,6 +25,12 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   Empty,
   EmptyDescription,
@@ -53,6 +47,38 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useAuthStore } from "@/features/auth/store";
+import {
+  DeleteResourceDialog,
+  WorkspaceActionDialog,
+} from "@/features/workspace/components/workspace-action-dialogs";
+import type {
+  ActionResource,
+  EditDialogState,
+} from "@/features/workspace/components/workspace-screen.types";
+import {
+  getErrorMessage,
+  toFileActionResource,
+  toFolderActionResource,
+} from "@/features/workspace/components/workspace-screen.utils";
+import type {
+  FileSummary,
+  Folder,
+  ShareAccessResponse,
+  SharedFolderContentsResponse,
+} from "@/features/workspace/schemas";
+import {
+  ApiError,
+  createSharedFolder,
+  deleteSharedFile,
+  deleteSharedFolder,
+  downloadSharedFile,
+  downloadSharedFolderFile,
+  getShareAccess,
+  getSharedFolderContents,
+  uploadSharedFile,
+} from "@/lib/api";
+import { formatBytes, formatDate } from "@/lib/format";
 
 type ShareListItem =
   | { kind: "folder"; folder: Folder }
@@ -67,6 +93,8 @@ export function ShareAccessPage() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
 
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+
   const [shareAccess, setShareAccess] = useState<ShareAccessResponse | null>(
     null,
   );
@@ -75,7 +103,12 @@ export function ShareAccessPage() {
   const [knownFolders, setKnownFolders] = useState<Record<string, Folder>>({});
   const [pending, setPending] = useState(true);
   const [downloadPending, setDownloadPending] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editDialogState, setEditDialogState] = useState<EditDialogState>(null);
+  const [deleteDialogResource, setDeleteDialogResource] =
+    useState<ActionResource | null>(null);
+  const [resourceName, setResourceName] = useState("");
 
   useEffect(() => {
     if (!token) {
@@ -85,6 +118,20 @@ export function ShareAccessPage() {
 
     void bootstrapShareAccess();
   }, [accessToken, navigate, token]);
+
+  useEffect(() => {
+    if (!editDialogState) {
+      setResourceName("");
+      return;
+    }
+
+    if (editDialogState.mode === "create-folder") {
+      setResourceName("");
+      return;
+    }
+
+    setResourceName(editDialogState.resource.name);
+  }, [editDialogState]);
 
   const breadcrumbFolders = useMemo(() => {
     if (!folderContents) {
@@ -125,6 +172,9 @@ export function ShareAccessPage() {
 
   const permissionLevel =
     folderContents?.permission_level ?? shareAccess?.permission_level ?? null;
+  const canUpload =
+    permissionLevel === "UPLOAD" || permissionLevel === "DELETE";
+  const canDelete = permissionLevel === "DELETE";
 
   if (pending) {
     return (
@@ -140,6 +190,32 @@ export function ShareAccessPage() {
 
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
+      <DeleteResourceDialog
+        actionPending={actionPending}
+        deleteDialogResource={deleteDialogResource}
+        onConfirm={() => void handleDeleteResource()}
+        onOpenChange={setDeleteDialogResource}
+      />
+
+      <WorkspaceActionDialog
+        actionPending={actionPending}
+        editDialogState={editDialogState}
+        moveTargetId=""
+        moveTargets={[]}
+        onOpenChange={setEditDialogState}
+        onSave={() => void handleSaveResourceAction()}
+        resourceName={resourceName}
+        setMoveTargetId={() => undefined}
+        setResourceName={setResourceName}
+      />
+
+      <input
+        className="hidden"
+        onChange={(event) => void handleUpload(event)}
+        ref={uploadInputRef}
+        type="file"
+      />
+
       <div className="mx-auto flex max-w-7xl flex-col gap-6 pb-10 pt-2">
         <AppNavbar innerClassName="max-w-7xl">
           <Badge variant="outline">Shared access</Badge>
@@ -229,155 +305,215 @@ export function ShareAccessPage() {
             </div>
           </main>
         ) : (
-          <main className="flex min-w-0 flex-col gap-6">
-            <section className="flex flex-col gap-5">
-              <div className="flex min-w-0 flex-col gap-3">
-                <Breadcrumb>
-                  <BreadcrumbList>
-                    {breadcrumbFolders.length > 0 ? (
-                      breadcrumbFolders.map((folder, index) => {
-                        const isLast = index === breadcrumbFolders.length - 1;
+          <ContextMenu>
+            <ContextMenuTrigger>
+              <main className="flex min-w-0 flex-col gap-6">
+                <section className="flex flex-col gap-5">
+                  <div className="flex min-w-0 flex-col gap-3">
+                    <Breadcrumb>
+                      <BreadcrumbList>
+                        {breadcrumbFolders.length > 0 ? (
+                          breadcrumbFolders.map((folder, index) => {
+                            const isLast =
+                              index === breadcrumbFolders.length - 1;
 
-                        return (
-                          <Fragment key={folder.id}>
-                            <BreadcrumbItem>
-                              {isLast ? (
-                                <BreadcrumbPage>{folder.name}</BreadcrumbPage>
-                              ) : (
-                                <BreadcrumbLink
-                                  className="cursor-pointer"
+                            return (
+                              <Fragment key={folder.id}>
+                                <BreadcrumbItem>
+                                  {isLast ? (
+                                    <BreadcrumbPage>
+                                      {folder.name}
+                                    </BreadcrumbPage>
+                                  ) : (
+                                    <BreadcrumbLink
+                                      className="cursor-pointer"
+                                      onClick={() =>
+                                        void openSharedFolder(folder.id)
+                                      }
+                                    >
+                                      {folder.name}
+                                    </BreadcrumbLink>
+                                  )}
+                                </BreadcrumbItem>
+                                {!isLast ? <BreadcrumbSeparator /> : null}
+                              </Fragment>
+                            );
+                          })
+                        ) : (
+                          <BreadcrumbItem>
+                            <BreadcrumbPage>Shared workspace</BreadcrumbPage>
+                          </BreadcrumbItem>
+                        )}
+                      </BreadcrumbList>
+                    </Breadcrumb>
+
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                      <div>
+                        <h1 className="text-4xl tracking-[-0.05em] text-foreground sm:text-5xl">
+                          Shared workspace
+                        </h1>
+                        <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+                          Open folders or download files directly from this
+                          shared workspace view.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {shareAccess ? (
+                          <Badge variant="outline">
+                            {shareAccess.share_mode}
+                          </Badge>
+                        ) : null}
+                        {permissionLevel ? (
+                          <Badge>{permissionLevel}</Badge>
+                        ) : null}
+                        {shareAccess?.expires_at ? (
+                          <Badge variant="secondary">
+                            Expires {formatDate(shareAccess.expires_at)}
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {items.length === 0 ? (
+                  <Empty className="border bg-muted/20 py-16">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <Link2Icon />
+                      </EmptyMedia>
+                      <EmptyTitle>This shared folder is empty</EmptyTitle>
+                      <EmptyDescription>
+                        The current share is active, but there are no folders or
+                        files in this location yet.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                ) : (
+                  <div className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-background/70 shadow-lg shadow-black/5 backdrop-blur">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Kind</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Updated</TableHead>
+                          <TableHead>Size</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {items.map((item) => {
+                          const resource =
+                            item.kind === "folder"
+                              ? toFolderActionResource(item.folder)
+                              : toFileActionResource({
+                                  file: item.file,
+                                  parentId: folderContents?.folder.id ?? "",
+                                });
+
+                          return (
+                            <ContextMenu key={resource.id}>
+                              <ContextMenuTrigger asChild>
+                                <TableRow
+                                  className="cursor-pointer transition-colors hover:bg-muted/20"
                                   onClick={() =>
-                                    void openSharedFolder(folder.id)
+                                    item.kind === "folder"
+                                      ? void openSharedFolder(item.folder.id)
+                                      : void handleDownloadFolderFile(
+                                          item.file.id,
+                                          item.file.stored_filename,
+                                        )
                                   }
                                 >
-                                  {folder.name}
-                                </BreadcrumbLink>
-                              )}
-                            </BreadcrumbItem>
-                            {!isLast ? <BreadcrumbSeparator /> : null}
-                          </Fragment>
-                        );
-                      })
-                    ) : (
-                      <BreadcrumbItem>
-                        <BreadcrumbPage>Shared workspace</BreadcrumbPage>
-                      </BreadcrumbItem>
-                    )}
-                  </BreadcrumbList>
-                </Breadcrumb>
+                                  <TableCell className="font-medium">
+                                    <div className="flex items-center gap-3">
+                                      {item.kind === "folder" ? (
+                                        <FolderIcon className="text-muted-foreground" />
+                                      ) : (
+                                        <FileTextIcon className="text-muted-foreground" />
+                                      )}
+                                      <span>
+                                        {item.kind === "folder"
+                                          ? item.folder.name
+                                          : item.file.stored_filename}
+                                      </span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline">
+                                      {item.kind === "folder"
+                                        ? "Folder"
+                                        : "File"}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    {item.kind === "folder" ? (
+                                      <span className="text-muted-foreground">
+                                        —
+                                      </span>
+                                    ) : (
+                                      <Badge>{item.file.status}</Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {formatDate(
+                                      item.kind === "folder"
+                                        ? item.folder.updated_at
+                                        : item.file.updated_at,
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {item.kind === "folder"
+                                      ? "—"
+                                      : formatBytes(item.file.size_bytes)}
+                                  </TableCell>
+                                </TableRow>
+                              </ContextMenuTrigger>
 
-                <div className="flex flex-wrap items-end justify-between gap-4">
-                  <div>
-                    <h1 className="text-4xl tracking-[-0.05em] text-foreground sm:text-5xl">
-                      Shared workspace
-                    </h1>
-                    <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                      Open folders or download files directly from this shared
-                      workspace view.
-                    </p>
+                              {canDelete ? (
+                                <ContextMenuContent>
+                                  <ContextMenuItem
+                                    onClick={() =>
+                                      setDeleteDialogResource(resource)
+                                    }
+                                    variant="destructive"
+                                  >
+                                    <TrashIcon />
+                                    Delete {resource.kind}
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              ) : null}
+                            </ContextMenu>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
                   </div>
+                )}
+              </main>
+            </ContextMenuTrigger>
 
-                  <div className="flex items-center gap-2">
-                    {shareAccess ? (
-                      <Badge variant="outline">{shareAccess.share_mode}</Badge>
-                    ) : null}
-                    {permissionLevel ? <Badge>{permissionLevel}</Badge> : null}
-                    {shareAccess?.expires_at ? (
-                      <Badge variant="secondary">
-                        Expires {formatDate(shareAccess.expires_at)}
-                      </Badge>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {items.length === 0 ? (
-              <Empty className="border bg-muted/20 py-16">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <Link2Icon />
-                  </EmptyMedia>
-                  <EmptyTitle>This shared folder is empty</EmptyTitle>
-                  <EmptyDescription>
-                    The current share is active, but there are no folders or
-                    files in this location yet.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <div className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-background/70 shadow-lg shadow-black/5 backdrop-blur">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Kind</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Updated</TableHead>
-                      <TableHead>Size</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {items.map((item) => (
-                      <TableRow
-                        className="cursor-pointer transition-colors hover:bg-muted/20"
-                        key={
-                          item.kind === "folder" ? item.folder.id : item.file.id
-                        }
-                        onClick={() =>
-                          item.kind === "folder"
-                            ? void openSharedFolder(item.folder.id)
-                            : void handleDownloadFolderFile(
-                                item.file.id,
-                                item.file.stored_filename,
-                              )
-                        }
-                      >
-                        <TableCell className="font-medium">
-                          <div className="flex items-center gap-3">
-                            {item.kind === "folder" ? (
-                              <FolderIcon className="text-muted-foreground" />
-                            ) : (
-                              <FileTextIcon className="text-muted-foreground" />
-                            )}
-                            <span>
-                              {item.kind === "folder"
-                                ? item.folder.name
-                                : item.file.stored_filename}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {item.kind === "folder" ? "Folder" : "File"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {item.kind === "folder" ? (
-                            <span className="text-muted-foreground">—</span>
-                          ) : (
-                            <Badge>{item.file.status}</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {formatDate(
-                            item.kind === "folder"
-                              ? item.folder.updated_at
-                              : item.file.updated_at,
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {item.kind === "folder"
-                            ? "—"
-                            : formatBytes(item.file.size_bytes)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </main>
+            {canUpload ? (
+              <ContextMenuContent>
+                <ContextMenuItem
+                  onClick={() =>
+                    setEditDialogState({
+                      mode: "create-folder",
+                      parentId: folderContents?.folder.id ?? "",
+                    })
+                  }
+                >
+                  <FolderInputIcon />
+                  Create folder
+                </ContextMenuItem>
+                <ContextMenuItem onClick={openNativeFilePicker}>
+                  <UploadIcon />
+                  Upload file
+                </ContextMenuItem>
+              </ContextMenuContent>
+            ) : null}
+          </ContextMenu>
         )}
       </div>
     </div>
@@ -403,6 +539,20 @@ export function ShareAccessPage() {
     }
   }
 
+  async function refreshCurrentFolder() {
+    if (!folderContents) {
+      return;
+    }
+
+    const nextContents = await getSharedFolderContents(
+      token,
+      accessToken,
+      folderContents.folder.id,
+    );
+    setFolderContents(nextContents);
+    registerFolders(nextContents.folder, nextContents.folders);
+  }
+
   async function openSharedFolder(folderId: string) {
     try {
       const nextContents = await getSharedFolderContents(
@@ -415,6 +565,99 @@ export function ShareAccessPage() {
     } catch (error) {
       handleShareError(error);
     }
+  }
+
+  async function handleSaveResourceAction() {
+    if (!editDialogState || !folderContents) {
+      return;
+    }
+
+    setActionPending(true);
+
+    try {
+      if (editDialogState.mode === "create-folder") {
+        if (!resourceName.trim()) {
+          toast.error("Enter a valid folder name.");
+          return;
+        }
+
+        await createSharedFolder(
+          token,
+          {
+            name: resourceName.trim(),
+            parent_id: editDialogState.parentId,
+          },
+          accessToken,
+        );
+        toast.success("Folder created");
+        setEditDialogState(null);
+        await refreshCurrentFolder();
+      }
+    } catch (error) {
+      handleShareError(error);
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  async function handleDeleteResource() {
+    const resource = deleteDialogResource;
+    if (!resource || !folderContents) {
+      return;
+    }
+
+    setActionPending(true);
+
+    try {
+      if (resource.kind === "folder") {
+        await deleteSharedFolder(token, resource.id, accessToken);
+        toast.success("Folder deleted");
+      } else {
+        await deleteSharedFile(token, resource.id, accessToken);
+        toast.success("File deleted");
+      }
+
+      setDeleteDialogResource(null);
+      await refreshCurrentFolder();
+    } catch (error) {
+      handleShareError(error);
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !folderContents) {
+      return;
+    }
+
+    try {
+      const uploadedFile = await uploadSharedFile(
+        token,
+        file,
+        folderContents.folder.id,
+        accessToken,
+      );
+
+      if (uploadedFile.stored_filename === file.name) {
+        toast.success(`${file.name} uploaded`);
+      } else {
+        toast.success(
+          `${file.name} uploaded as ${uploadedFile.stored_filename}`,
+        );
+      }
+
+      await refreshCurrentFolder();
+    } catch (error) {
+      handleShareError(error);
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function openNativeFilePicker() {
+    uploadInputRef.current?.click();
   }
 
   async function handleDownloadRootFile() {
@@ -487,7 +730,7 @@ export function ShareAccessPage() {
     }
 
     setError(error instanceof Error ? error.message : "Unexpected error");
-    toast.error(error instanceof Error ? error.message : "Unexpected error");
+    toast.error(getErrorMessage(error));
   }
 }
 

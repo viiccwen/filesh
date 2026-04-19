@@ -456,3 +456,61 @@ export function downloadSharedFolderFile(
     responseType: "blob",
   });
 }
+
+export function createSharedFolder(
+  token: string,
+  payload: { name: string; parent_id?: string | null },
+  accessToken?: string | null,
+): Promise<Folder> {
+  return request<Folder>(`/s/${token}/folders`, {
+    method: "POST",
+    accessToken,
+    body: JSON.stringify(payload),
+    parse: (value) => folderSchema.parse(value),
+  });
+}
+
+export function deleteSharedFolder(
+  token: string,
+  folderId: string,
+  accessToken?: string | null,
+): Promise<void> {
+  return request<void>(`/s/${token}/folders/${folderId}`, {
+    method: "DELETE",
+    accessToken,
+    responseType: "void",
+  });
+}
+
+export function deleteSharedFile(
+  token: string,
+  fileId: string,
+  accessToken?: string | null,
+): Promise<void> {
+  return request<void>(`/s/${token}/files/${fileId}`, {
+    method: "DELETE",
+    accessToken,
+    responseType: "void",
+  });
+}
+
+export function uploadSharedFile(
+  token: string,
+  file: File,
+  folderId?: string,
+  accessToken?: string | null,
+): Promise<FileRead> {
+  const formData = new FormData();
+  formData.set("file", file);
+
+  if (folderId) {
+    formData.set("folder_id", folderId);
+  }
+
+  return request<FileRead>(`/s/${token}/files`, {
+    method: "POST",
+    accessToken,
+    body: formData,
+    parse: (value) => fileReadSchema.parse(value),
+  });
+}
