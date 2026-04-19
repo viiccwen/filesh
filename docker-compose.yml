@@ -6,6 +6,7 @@ services:
       - .env
     environment:
       UV_LINK_MODE: copy
+      KAFKA_PUBLISHER_ENABLED: "true"
       OTEL_SERVICE_NAME: "filesh-backend"
       TRACING_ENABLED: "true"
     ports:
