@@ -56,14 +56,15 @@ flowchart LR
     API -->|Object storage| S3
     API -->|Cleanup events| Kafka
     Worker -->|Consume cleanup jobs| Kafka
-    Worker -->|Delete objects / reconcile state| S3
-    Worker -->|Update records when needed| PG
+    Worker -->|Delete objects| S3
+    Worker -->|Update records| PG
 
-    API -->|Metrics / logs / traces| Alloy
-    Worker -->|Metrics / logs / traces| Alloy
-    Alloy --> Prom
-    Alloy --> Loki
-    Alloy --> Tempo
+    API -->|Metrics| Prom
+    Worker -->|Metrics| Prom
+    API -->|OTLP traces| Alloy
+    Worker -->|OTLP traces| Alloy
+    Alloy -->|Traces| Tempo
+    Alloy -->|Docker logs| Loki
     Grafana --> Prom
     Grafana --> Loki
     Grafana --> Tempo
