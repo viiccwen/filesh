@@ -1,35 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from io import BytesIO
-from typing import Protocol
 
 from minio import Minio
 from minio.error import S3Error
 
+from app.application.types import StoredObject
 from app.core.config import settings
-
-
-@dataclass
-class StoredObject:
-    data: bytes
-    content_type: str | None
-
-
-class ObjectStorage(Protocol):
-    def put_object(
-        self,
-        bucket: str,
-        object_key: str,
-        data: bytes,
-        content_type: str | None,
-    ) -> None: ...
-
-    def get_object(self, bucket: str, object_key: str) -> StoredObject: ...
-
-    def delete_object(self, bucket: str, object_key: str) -> None: ...
-
-    def object_exists(self, bucket: str, object_key: str) -> bool: ...
 
 
 class MinioObjectStorage:

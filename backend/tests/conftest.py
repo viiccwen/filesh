@@ -8,16 +8,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.application.ports import ObjectStoragePort
+from app.application.types import StoredObject
 from app.core.db import get_db_session
 from app.core.events import InMemoryEventPublisher
-from app.core.storage import ObjectStorage, StoredObject
 from app.dependencies.events import get_event_publisher
 from app.dependencies.storage import get_object_storage
 from app.main import app
 from app.persistence.models.base import Base
 
 
-class InMemoryObjectStorage(ObjectStorage):
+class InMemoryObjectStorage(ObjectStoragePort):
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], tuple[bytes, str | None]] = {}
 

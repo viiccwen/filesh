@@ -56,6 +56,19 @@ def build_auth_tokens(user: User) -> tuple[str, str]:
     return access_token, refresh_token
 
 
+def resolve_access_user(uow: UnitOfWorkPort, access_token: str) -> AuthenticatedUser:
+    try:
+        payload = decode_token(access_token, expected_type="access")
+        user_id = uuid.UUID(payload["sub"])
+    except (KeyError, ValueError, jwt.InvalidTokenError) as exc:
+        raise AuthenticationError("Invalid access token") from exc
+
+    user = uow.users.get_active_by_id(user_id)
+    if user is None:
+        raise AuthenticationError("User not found")
+    return AuthenticatedUser.model_validate(user)
+
+
 def resolve_refresh_user(uow: UnitOfWorkPort, refresh_token: str | None) -> User:
     if refresh_token is None:
         raise AuthenticationError("Refresh token missing")

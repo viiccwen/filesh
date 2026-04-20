@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import uuid
-
-import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.application.services import identity
 from app.application.types import AuthenticatedUser
 from app.core.db import get_db_session
-from app.core.security import decode_token
-from app.repositories import users as user_repository
+from app.domain import AuthenticationError
+from app.persistence.uow import SqlAlchemyUnitOfWork
 
 bearer_scheme = HTTPBearer(auto_error=False)
 db_session_dependency = Depends(get_db_session)
@@ -25,19 +23,15 @@ def resolve_current_user(
         return None
 
     try:
-        payload = decode_token(credentials.credentials, expected_type="access")
-        user_id = uuid.UUID(payload["sub"])
-    except (KeyError, ValueError, jwt.InvalidTokenError) as exc:
+        return identity.resolve_access_user(
+            SqlAlchemyUnitOfWork(session),
+            credentials.credentials,
+        )
+    except AuthenticationError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid access token",
+            detail=str(exc),
         ) from exc
-
-    user = user_repository.get_active_user_by_id(session, user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-
-    return AuthenticatedUser.model_validate(user)
 
 
 def get_current_user(

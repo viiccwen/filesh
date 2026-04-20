@@ -7,8 +7,9 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.application.ports import EventPublisherPort, ObjectStoragePort
 from app.core.config import settings
-from app.core.events import CleanupEventType, EventPublisher, KafkaEventPublisher
+from app.core.events import CleanupEventType, KafkaEventPublisher
 from app.core.observability import (
     configure_logging,
     current_time,
@@ -19,7 +20,7 @@ from app.core.observability import (
     request_log_extra,
     start_metrics_server,
 )
-from app.core.storage import MinioObjectStorage, ObjectStorage
+from app.core.storage import MinioObjectStorage
 from app.core.tracing import (
     WORKER_SPAN_KIND,
     configure_tracing,
@@ -41,7 +42,7 @@ def iter_cleanup_objects(event: dict[str, Any]) -> Iterable[tuple[str, str]]:
             yield bucket, object_key
 
 
-def handle_cleanup_event(event: dict[str, Any], storage: ObjectStorage) -> None:
+def handle_cleanup_event(event: dict[str, Any], storage: ObjectStoragePort) -> None:
     event_type = event.get("event_type")
     if event_type not in {
         CleanupEventType.FILE_DELETE_REQUESTED,
@@ -217,8 +218,8 @@ def observe_consumer_position(consumer, message) -> None:
 def process_cleanup_message(
     consumer,
     message,
-    storage: ObjectStorage,
-    publisher: EventPublisher,
+    storage: ObjectStoragePort,
+    publisher: EventPublisherPort,
 ) -> None:
     event = message.value
     started_at = current_time()
@@ -313,8 +314,8 @@ def process_cleanup_message(
 
 def consume_cleanup_events(
     consumer,
-    storage: ObjectStorage,
-    publisher: EventPublisher,
+    storage: ObjectStoragePort,
+    publisher: EventPublisherPort,
 ) -> None:
     for message in consumer:
         process_cleanup_message(consumer, message, storage, publisher)
@@ -336,7 +337,7 @@ def reset_event_for_replay(event: dict[str, Any]) -> dict[str, Any]:
 
 def replay_dlq_events(
     consumer,
-    publisher: EventPublisher,
+    publisher: EventPublisherPort,
     *,
     limit: int,
     dry_run: bool = False,

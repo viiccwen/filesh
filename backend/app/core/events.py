@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
+from app.application.ports import EventPublisherPort
 from app.core.config import settings
 from app.core.observability import get_request_id
 from app.core.tracing import inject_trace_context
@@ -17,10 +18,6 @@ class CleanupEventType:
     ACCOUNT_DELETE_REQUESTED = "account.delete_requested"
 
 
-class EventPublisher(Protocol):
-    def publish(self, topic: str, key: str, payload: dict[str, Any]) -> None: ...
-
-
 @dataclass
 class PublishedEvent:
     topic: str
@@ -29,19 +26,19 @@ class PublishedEvent:
 
 
 @dataclass
-class InMemoryEventPublisher:
+class InMemoryEventPublisher(EventPublisherPort):
     events: list[PublishedEvent] = field(default_factory=list)
 
     def publish(self, topic: str, key: str, payload: dict[str, Any]) -> None:
         self.events.append(PublishedEvent(topic=topic, key=key, payload=payload))
 
 
-class NoopEventPublisher:
+class NoopEventPublisher(EventPublisherPort):
     def publish(self, topic: str, key: str, payload: dict[str, Any]) -> None:
         return None
 
 
-class KafkaEventPublisher:
+class KafkaEventPublisher(EventPublisherPort):
     def __init__(self) -> None:
         from kafka import KafkaProducer
 
