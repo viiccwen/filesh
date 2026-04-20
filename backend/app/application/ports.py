@@ -6,6 +6,7 @@ from typing import Any, Protocol
 from app.application.types import (
     FileRecord,
     FolderRecord,
+    ResourceSearchPage,
     ShareLinkRecord,
     StoredObject,
     UploadSessionRecord,
@@ -115,11 +116,27 @@ class SharesRepositoryPort(Protocol):
     def get_shared_folder(self, folder_id: uuid.UUID) -> FolderRecord | None: ...
 
 
+class ResourcesRepositoryPort(Protocol):
+    def search_folder_contents(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        parent_id: uuid.UUID,
+        query: str,
+        resource_type: ResourceType | None,
+        sort_by: str,
+        order: str,
+        page: int,
+        page_size: int,
+    ) -> ResourceSearchPage: ...
+
+
 class UnitOfWorkPort(Protocol):
     users: UsersRepositoryPort
     files: FilesRepositoryPort
     folders: FoldersRepositoryPort
     shares: SharesRepositoryPort
+    resources: ResourcesRepositoryPort
 
     def commit(self) -> None: ...
 

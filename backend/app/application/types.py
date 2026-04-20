@@ -96,6 +96,28 @@ class UserRecord(Protocol):
     files: list[FileRecord]
 
 
+@dataclass
+class ResourceSearchRow:
+    id: uuid.UUID
+    item_type: ResourceType
+    owner_id: uuid.UUID
+    parent_id: uuid.UUID | None
+    folder_id: uuid.UUID | None
+    name: str
+    path_cache: str | None
+    content_type: str | None
+    size_bytes: int | None
+    status: FileStatus | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass
+class ResourceSearchPage:
+    items: list[ResourceSearchRow]
+    total_items: int
+
+
 class AuthenticatedUser(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

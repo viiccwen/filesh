@@ -6,6 +6,7 @@ from app.application.ports import UnitOfWorkPort
 from app.persistence.repositories import (
     SqlAlchemyFilesRepository,
     SqlAlchemyFoldersRepository,
+    SqlAlchemyResourcesRepository,
     SqlAlchemySharesRepository,
     SqlAlchemyUsersRepository,
 )
@@ -18,6 +19,7 @@ class SqlAlchemyUnitOfWork(UnitOfWorkPort):
         self.files = SqlAlchemyFilesRepository(session)
         self.folders = SqlAlchemyFoldersRepository(session)
         self.shares = SqlAlchemySharesRepository(session)
+        self.resources = SqlAlchemyResourcesRepository(session)
 
     def commit(self) -> None:
         self.session.commit()
