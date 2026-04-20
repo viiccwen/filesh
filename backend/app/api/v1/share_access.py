@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.api.errors import to_http_exception
-from app.application.dto import AuthenticatedUser
+from app.application.types import AuthenticatedUser
 from app.application.use_cases.share_access import ShareAccessUseCase
 from app.dependencies.auth import get_optional_current_user
 from app.dependencies.use_cases import get_share_access_use_case

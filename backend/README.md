@@ -31,7 +31,7 @@ This package contains the FileSh backend API, domain logic, persistence layer, A
 backend/
 |-- app/
 |   |-- api/                  FastAPI routes and HTTP error mapping
-|   |-- application/          Use cases, DTOs, shared presenters
+|   |-- application/          Use cases, services, mappers, principals, ports
 |   |-- core/                 Config, DB, security, storage, tracing, observability
 |   |-- dependencies/         FastAPI dependency providers
 |   |-- domain/               Enums and domain exceptions

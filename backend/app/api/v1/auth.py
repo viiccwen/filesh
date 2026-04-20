@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Cookie, Depends, Response, status
 
 from app.api.errors import to_http_exception
-from app.application.dto import AuthenticatedUser
+from app.application.types import AuthenticatedUser
 from app.application.use_cases.auth import AuthUseCase
 from app.core.config import settings
 from app.dependencies.auth import get_current_user

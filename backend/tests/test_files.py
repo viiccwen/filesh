@@ -4,9 +4,10 @@ import uuid
 
 from sqlalchemy import select
 
-from app.application.shared.files import resolve_filename_collision
+from app.application.services.files import resolve_filename_collision
 from app.domain.enums import UploadSessionStatus
 from app.persistence.models import File, UploadSession
+from app.persistence.uow import SqlAlchemyUnitOfWork
 from tests_helpers import register_and_login
 
 
@@ -96,7 +97,10 @@ def test_upload_init_auto_renames_on_collision(client, session) -> None:
 
     assert second_init.status_code == 201
     assert second_init.json()["resolved_filename"] == "report (1).pdf"
-    assert resolve_filename_collision(session, folder_id, "report.pdf") == "report (2).pdf"
+    assert (
+        resolve_filename_collision(SqlAlchemyUnitOfWork(session), folder_id, "report.pdf")
+        == "report (2).pdf"
+    )
 
 
 def test_upload_fail_marks_session_failed(client, session) -> None:

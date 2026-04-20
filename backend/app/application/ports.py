@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+import uuid
+from typing import Any, Protocol
+
+from app.core.storage import StoredObject
+from app.domain.enums import ResourceType
+from app.persistence.models import File, Folder, ShareLink, UploadSession, User
+
+
+class EventPublisherPort(Protocol):
+    def publish(self, topic: str, key: str, payload: dict[str, Any]) -> None: ...
+
+
+class ObjectStoragePort(Protocol):
+    def put_object(
+        self,
+        bucket: str,
+        object_key: str,
+        data: bytes,
+        content_type: str | None,
+    ) -> None: ...
+
+    def get_object(self, bucket: str, object_key: str) -> StoredObject: ...
+
+    def delete_object(self, bucket: str, object_key: str) -> None: ...
+
+    def object_exists(self, bucket: str, object_key: str) -> bool: ...
+
+
+class UsersRepositoryPort(Protocol):
+    def add(self, user: User) -> None: ...
+
+    def get_by_email_or_username(self, *, email: str, username: str) -> User | None: ...
+
+    def get_by_identifier(self, identifier: str) -> User | None: ...
+
+    def get_by_username(self, username: str) -> User | None: ...
+
+    def get_active_by_id(self, user_id: uuid.UUID) -> User | None: ...
+
+
+class FilesRepositoryPort(Protocol):
+    def list_filenames_in_folder(self, folder_id: uuid.UUID) -> set[str]: ...
+
+    def list_reserved_filenames_in_folder(self, folder_id: uuid.UUID) -> set[str]: ...
+
+    def add_upload_session(self, upload_session: UploadSession) -> None: ...
+
+    def get_upload_session_by_owner(
+        self, upload_session_id: uuid.UUID, owner_id: uuid.UUID
+    ) -> UploadSession | None: ...
+
+    def add_file(self, file: File) -> None: ...
+
+    def get_by_owner(self, file_id: uuid.UUID, owner_id: uuid.UUID) -> File | None: ...
+
+    def get_by_id(self, file_id: uuid.UUID) -> File | None: ...
+
+    def list_by_folder_ids(self, folder_ids: list[uuid.UUID]) -> list[File]: ...
+
+
+class FoldersRepositoryPort(Protocol):
+    def add(self, folder: Folder) -> None: ...
+
+    def get_root(self, user_id: uuid.UUID, root_folder_name: str) -> Folder | None: ...
+
+    def get_by_owner(self, folder_id: uuid.UUID, owner_id: uuid.UUID) -> Folder | None: ...
+
+    def get_by_id(self, folder_id: uuid.UUID) -> Folder | None: ...
+
+    def get_with_contents_by_owner(
+        self,
+        folder_id: uuid.UUID,
+        owner_id: uuid.UUID,
+    ) -> Folder | None: ...
+
+    def list_descendant_folder_ids(
+        self,
+        owner_id: uuid.UUID,
+        path_prefix: str,
+    ) -> list[uuid.UUID]: ...
+
+    def list_descendant_folders(self, owner_id: uuid.UUID, path_prefix: str) -> list[Folder]: ...
+
+    def list_upload_sessions_by_folder_ids(
+        self,
+        folder_ids: list[uuid.UUID],
+    ) -> list[UploadSession]: ...
+
+
+class SharesRepositoryPort(Protocol):
+    def get_active_for_resource(
+        self,
+        resource_type: ResourceType,
+        resource_id: uuid.UUID,
+    ) -> ShareLink | None: ...
+
+    def add_share_link(self, share_link: ShareLink) -> None: ...
+
+    def get_active_users_by_emails(self, emails: list[str]) -> list[User]: ...
+
+    def get_by_token_hash(self, token_hash: str) -> ShareLink | None: ...
+
+    def get_shared_file(self, file_id: uuid.UUID) -> File | None: ...
+
+    def get_shared_folder(self, folder_id: uuid.UUID) -> Folder | None: ...
+
+
+class UnitOfWorkPort(Protocol):
+    users: UsersRepositoryPort
+    files: FilesRepositoryPort
+    folders: FoldersRepositoryPort
+    shares: SharesRepositoryPort
+
+    def commit(self) -> None: ...
+
+    def rollback(self) -> None: ...
+
+    def refresh(self, instance: object) -> None: ...
+
+    def flush(self) -> None: ...
+
+    def add(self, instance: object) -> None: ...
+
+    def delete(self, instance: object) -> None: ...

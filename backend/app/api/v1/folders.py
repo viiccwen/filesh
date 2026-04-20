@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, Response, status
 
 from app.api.errors import to_http_exception
-from app.application.dto import AuthenticatedUser
+from app.application.types import AuthenticatedUser
 from app.application.use_cases.folders import FolderUseCase
 from app.dependencies.auth import get_current_user
 from app.dependencies.use_cases import get_folder_use_case

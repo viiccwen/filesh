@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app.application.ports import UnitOfWorkPort
 from app.application.use_cases.auth import AuthUseCase
 from app.application.use_cases.files import FileUseCase
 from app.application.use_cases.folders import FolderUseCase
@@ -14,49 +15,57 @@ from app.core.events import EventPublisher
 from app.core.storage import ObjectStorage
 from app.dependencies.events import get_event_publisher
 from app.dependencies.storage import get_object_storage
+from app.persistence.uow import SqlAlchemyUnitOfWork
 
 db_session_dependency = Depends(get_db_session)
 object_storage_dependency = Depends(get_object_storage)
 event_publisher_dependency = Depends(get_event_publisher)
 
 
+def get_unit_of_work(session: Session = db_session_dependency) -> UnitOfWorkPort:
+    return SqlAlchemyUnitOfWork(session)
+
+
+uow_dependency = Depends(get_unit_of_work)
+
+
 def get_auth_use_case(
-    session: Session = db_session_dependency,
+    uow: UnitOfWorkPort = uow_dependency,
     event_publisher: EventPublisher = event_publisher_dependency,
 ) -> AuthUseCase:
-    return AuthUseCase(session, event_publisher)
+    return AuthUseCase(uow, event_publisher)
 
 
 def get_folder_use_case(
-    session: Session = db_session_dependency,
+    uow: UnitOfWorkPort = uow_dependency,
     event_publisher: EventPublisher = event_publisher_dependency,
 ) -> FolderUseCase:
-    return FolderUseCase(session, event_publisher)
+    return FolderUseCase(uow, event_publisher)
 
 
 def get_file_use_case(
-    session: Session = db_session_dependency,
+    uow: UnitOfWorkPort = uow_dependency,
     object_storage: ObjectStorage = object_storage_dependency,
     event_publisher: EventPublisher = event_publisher_dependency,
 ) -> FileUseCase:
-    return FileUseCase(session, object_storage, event_publisher)
+    return FileUseCase(uow, object_storage, event_publisher)
 
 
 def get_resource_use_case(
-    session: Session = db_session_dependency,
+    uow: UnitOfWorkPort = uow_dependency,
 ) -> ResourceUseCase:
-    return ResourceUseCase(session)
+    return ResourceUseCase(uow)
 
 
 def get_share_access_use_case(
-    session: Session = db_session_dependency,
+    uow: UnitOfWorkPort = uow_dependency,
     object_storage: ObjectStorage = object_storage_dependency,
     event_publisher: EventPublisher = event_publisher_dependency,
 ) -> ShareAccessUseCase:
-    return ShareAccessUseCase(session, object_storage, event_publisher)
+    return ShareAccessUseCase(uow, object_storage, event_publisher)
 
 
 def get_user_use_case(
-    session: Session = db_session_dependency,
+    uow: UnitOfWorkPort = uow_dependency,
 ) -> UserUseCase:
-    return UserUseCase(session)
+    return UserUseCase(uow)
